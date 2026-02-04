@@ -79,13 +79,18 @@ function MobileStack() {
       <Stack.Screen name={ROUTES.MyItems} component={MyItemsScreen} />
       <Stack.Screen name={ROUTES.Favorites} component={FavoritesScreen} />
 
-      {/* ✅ Theme */}
+      {/* ✅ Theme (CU BACK) */}
       <Stack.Screen
         name={ROUTES.ThemeSettings}
         component={ThemeSettingsScreen}
+        options={{
+          headerShown: true,
+          title: "Setări temă",
+          headerTransparent: true,
+          headerTitleStyle: { fontWeight: "900" },
+        }}
       />
 
-      {/* ✅ Lightbox fullscreen (tap pe poză) */}
       <Stack.Screen
         name={ROUTES.ImageViewer}
         component={ImageViewerScreen}
@@ -116,9 +121,12 @@ function WebStack() {
       <Stack.Screen name={ROUTES.MyItems} component={MyItemsScreen} />
       <Stack.Screen name={ROUTES.Favorites} component={FavoritesScreen} />
       <Stack.Screen name={ROUTES.Profile} component={ProfileScreen} />
+
+      {/* ✅ Theme (pe web vrei fără Header.web aici, altfel pare “dublu”) */}
       <Stack.Screen
         name={ROUTES.ThemeSettings}
         component={ThemeSettingsScreen}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

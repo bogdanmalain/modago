@@ -92,16 +92,11 @@ export default function ProfileScreen({ navigation }) {
   }, [navigation, loadCounts]);
 
   const ensureLogged = useCallback(() => {
-    // dacă auth nu e gata, nu facem nimic
     if (!authReady) return false;
-
-    // dacă nu există user, NU navigăm manual la Login (AppNavigator gestionează)
     if (!user) return false;
-
     return true;
   }, [authReady, user]);
 
-  // navigare sigură către Stack-ul părinte (MyItems/Favorites sunt în Stack, nu în Tabs)
   const navigateToRootStack = useCallback(
     (routeName) => {
       const parent = navigation.getParent?.();
@@ -121,18 +116,20 @@ export default function ProfileScreen({ navigation }) {
     navigateToRootStack(ROUTES.Favorites);
   }, [ensureLogged, navigateToRootStack]);
 
+  const goThemeSettings = useCallback(() => {
+    if (!ensureLogged()) return;
+    navigateToRootStack(ROUTES.ThemeSettings);
+  }, [ensureLogged, navigateToRootStack]);
+
   const onLogout = useCallback(async () => {
     try {
       await supabase.auth.signOut();
-      // IMPORTANT: nu navigăm manual la Login
-      // AppNavigator va comuta automat pe AuthStack când session devine null
     } catch (e) {
       console.log("❌ logout error:", e);
     }
   }, []);
 
   const goSell = useCallback(() => {
-    // AddItem e în Tabs
     navigation.navigate(ROUTES.AddItem);
   }, [navigation]);
 
@@ -149,7 +146,6 @@ export default function ProfileScreen({ navigation }) {
     >
       <Text style={styles.title}>Profil</Text>
 
-      {/* Header card */}
       <View style={styles.profileCard}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
@@ -171,7 +167,6 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Stats */}
       <View style={styles.statsRow}>
         <TouchableOpacity
           style={styles.statCard}
@@ -197,9 +192,11 @@ export default function ProfileScreen({ navigation }) {
         </View>
       </View>
 
-      {/* Menu */}
       <View style={styles.menuCard}>
-        <TouchableOpacity style={styles.menuRow} onPress={goMyItems}>
+        <TouchableOpacity
+          style={styles.menuRow}
+          onPress={() => navigateToRootStack(ROUTES.ThemeSettings)}
+        >
           <Text style={styles.menuText}>🧾 Anunțurile mele</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
@@ -213,13 +210,13 @@ export default function ProfileScreen({ navigation }) {
 
         <View style={styles.menuDivider} />
 
-        <TouchableOpacity style={styles.menuRow} onPress={() => {}}>
+        {/* ✅ FIX: Setări -> ThemeSettings */}
+        <TouchableOpacity style={styles.menuRow} onPress={goThemeSettings}>
           <Text style={styles.menuText}>⚙️ Setări</Text>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Logout */}
       <TouchableOpacity
         style={styles.logoutBtn}
         activeOpacity={0.9}

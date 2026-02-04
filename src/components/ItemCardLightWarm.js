@@ -80,7 +80,9 @@ const styles = StyleSheet.create({
   // warm “paper” + shadow elegant
   cardOuter: {
     flex: 1,
-    backgroundColor: "#F7F4EF", // warm off-white
+    card: {
+      backgroundColor: "#FFFFFF",
+    }, // warm off-white
     borderRadius: 20,
     padding: 8,
     shadowColor: "#000",

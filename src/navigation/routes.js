@@ -6,6 +6,8 @@ export const ROUTES = {
   Inbox: "Inbox",
   Profile: "Profile",
 
+  Tabs: "Tabs",
+
   ItemDetails: "ItemDetails",
   EditItem: "EditItem",
 
@@ -17,8 +19,5 @@ export const ROUTES = {
 
   ImageViewer: "ImageViewer",
 
-  // ✅ Theme
   ThemeSettings: "ThemeSettings",
-
-  Tabs: "Tabs",
 };

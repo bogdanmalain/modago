@@ -21,50 +21,60 @@ export default function ItemCardDarkProduct({
         { marginBottom: GAP },
       ]}
     >
-      <View style={styles.cardInner}>
-        <View style={styles.imageBox}>
-          {mainImage ? (
-            <Image
-              source={{ uri: mainImage }}
-              style={styles.image}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.noImage}>
-              <Text style={styles.noImageText}>Fără imagine</Text>
-            </View>
-          )}
+      {/* ✅ FRAME alb/ivory (mockup) */}
+      <View style={styles.frame}>
+        {/* ✅ cardul dark din interior */}
+        <View style={styles.cardInner}>
+          <View style={styles.imageBox}>
+            {mainImage ? (
+              <Image
+                source={{ uri: mainImage }}
+                style={styles.image}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.noImage}>
+                <Text style={styles.noImageText}>Fără imagine</Text>
+              </View>
+            )}
 
-          {dots}
+            {dots}
 
-          {/* ❤️ pill dark pe poză (ca mockup) */}
-          <Pressable onPress={onToggleFav} style={styles.favPill} hitSlop={10}>
-            <Text style={[styles.favHeart, isFav && styles.favHeartActive]}>
-              {isFav ? "♥" : "♡"}
+            {/* ❤️ pill pe poză */}
+            <Pressable
+              onPress={onToggleFav}
+              style={styles.favPill}
+              hitSlop={10}
+            >
+              <Text style={[styles.favHeart, isFav && styles.favHeartActive]}>
+                {isFav ? "♥" : "♡"}
+              </Text>
+              <Text style={styles.favCount}>{favCount}</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.body}>
+            <Text numberOfLines={2} style={styles.title}>
+              {item?.title || "-"}
             </Text>
-            <Text style={styles.favCount}>{favCount}</Text>
-          </Pressable>
-        </View>
 
-        <View style={styles.body}>
-          <Text numberOfLines={2} style={styles.title}>
-            {item?.title || "-"}
-          </Text>
+            <Text numberOfLines={1} style={styles.price}>
+              {typeof item?.price === "number"
+                ? item.price
+                : item?.price || "-"}{" "}
+              lei
+            </Text>
 
-          <Text numberOfLines={1} style={styles.price}>
-            {typeof item?.price === "number" ? item.price : item?.price || "-"}{" "}
-            lei
-          </Text>
+            <Text numberOfLines={1} style={styles.meta}>
+              {item?.category || "Categorie"}
+            </Text>
 
-          <Text numberOfLines={1} style={styles.meta}>
-            {item?.category || "Categorie"}
-          </Text>
+            <View style={styles.divider} />
 
-          <View style={styles.divider} />
-
-          <Text numberOfLines={1} style={styles.metaMuted}>
-            {item?.description || ""}
-          </Text>
+            <Text numberOfLines={1} style={styles.metaMuted}>
+              {item?.description || ""}
+            </Text>
+          </View>
         </View>
       </View>
     </Pressable>
@@ -72,49 +82,63 @@ export default function ItemCardDarkProduct({
 }
 
 const styles = StyleSheet.create({
+  // Outer: doar spacing + “aer”, fără galben
   cardOuter: {
     flex: 1,
-    borderRadius: 22,
-    padding: 8,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 26,
+  },
+
+  // ✅ Frame alb/ivory (exact ce lipsește ca în mockup)
+  frame: {
+    borderRadius: 26,
+    padding: 7, // grosimea ramei
+    backgroundColor: "rgba(255,255,255,0.92)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderColor: "rgba(255,255,255,0.75)",
+
+    // shadow “soft” ca în mockup (merge ok pe iOS; pe Android e elevation)
+    shadowColor: "#000",
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
   },
 
   cardInner: {
-    borderRadius: 18,
+    borderRadius: 20,
     overflow: "hidden",
     backgroundColor: "#0F1220",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
 
   imageBox: {
     position: "relative",
-    padding: 8,
+    padding: 10,
     paddingBottom: 0,
   },
 
   image: {
     width: "100%",
     aspectRatio: 1,
-    borderRadius: 16,
+    borderRadius: 18,
     backgroundColor: "#141A2C",
   },
 
   noImage: {
     width: "100%",
     aspectRatio: 1,
-    borderRadius: 16,
+    borderRadius: 18,
     backgroundColor: "#141A2C",
     alignItems: "center",
     justifyContent: "center",
   },
   noImageText: { color: "rgba(255,255,255,0.75)", fontWeight: "800" },
 
-  // pill ca în mockup: inimă + count în același pill
   favPill: {
     position: "absolute",
-    right: 14,
-    bottom: 14,
+    right: 16,
+    bottom: 16,
     height: 38,
     borderRadius: 19,
     paddingHorizontal: 12,

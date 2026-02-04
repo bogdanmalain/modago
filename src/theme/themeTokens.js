@@ -1,31 +1,40 @@
 // src/theme/themeTokens.js
-
 export const THEME = {
   light: {
     scheme: "light",
-    // fundaluri app
+
     bg: "#F3F4F6",
-    surface: "#FFFFFF",
+    card: "#FFFFFF",
     text: "#111827",
     muted: "#6B7280",
 
-    // accent (albastrul “preț” / brand)
-    accent: "#2F6BFF",
+    border: "rgba(0,0,0,0.08)",
+    divider: "rgba(0,0,0,0.06)",
 
-    // “warm” pentru cardurile light warm
-    warmPaper: "#F7F4EF",
-    warmBorder: "#EDE7DD",
+    primary: "#2563EB",
+    primarySoft: "#E5EEFF",
+
+    danger: "#EF4444",
+
+    shadowColor: "#000",
   },
 
   dark: {
     scheme: "dark",
-    bg: "#141823",
-    surface: "#0F1220",
-    text: "rgba(255,255,255,0.95)",
-    muted: "rgba(255,255,255,0.65)",
-    accent: "#2F6BFF",
 
-    warmPaper: "rgba(255,255,255,0.06)",
-    warmBorder: "rgba(255,255,255,0.12)",
+    bg: "#0B1220",
+    card: "#111A2E",
+    text: "#E5E7EB",
+    muted: "#9CA3AF",
+
+    border: "rgba(255,255,255,0.10)",
+    divider: "rgba(255,255,255,0.08)",
+
+    primary: "#60A5FA",
+    primarySoft: "rgba(96,165,250,0.18)",
+
+    danger: "#F87171",
+
+    shadowColor: "#000",
   },
 };
