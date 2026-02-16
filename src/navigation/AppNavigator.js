@@ -5,6 +5,7 @@ import React, {
   useRef,
   useState,
   useCallback,
+  useContext,
 } from "react";
 import { Platform } from "react-native";
 
@@ -22,6 +23,9 @@ import { supabase } from "../supabaseClient";
 // (WEB) Header sus – doar web
 import Header from "../components/Header.web";
 
+// Floating tabbar (MOBILE)
+import FloatingTabBar from "../components/FloatingTabBar";
+
 // Screens
 import HomeScreen from "../screens/HomeScreen";
 import SearchScreen from "../screens/SearchScreen";
@@ -31,20 +35,21 @@ import ProfileScreen from "../screens/ProfileScreen";
 
 import ItemDetailsScreen from "../screens/ItemDetailsScreen";
 import EditItemScreen from "../screens/EditItemScreen";
-
 import ImageViewerScreen from "../screens/ImageViewerScreen";
 
+import WelcomeScreen from "../screens/WelcomeScreen";
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
+import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
+import ResetPasswordScreen from "../screens/ResetPasswordScreen";
 
 import MyItemsScreen from "../screens/MyItemsScreen";
 import FavoritesScreen from "../screens/FavoritesScreen";
 
-// ✅ Theme settings screen
 import ThemeSettingsScreen from "../screens/ThemeSettingsScreen";
 
-// ✅ Theme provider
-import { ThemeProvider } from "../theme/ThemeProvider";
+// Theme provider
+import { ThemeProvider, ThemeContext } from "../theme/ThemeProvider";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -56,46 +61,80 @@ function getActiveRouteName(state) {
   return route.name;
 }
 
+/**
+ * MOBILE: Tabs = navigator principal (tabbar rămâne peste tot)
+ * (ATENȚIE: ImageViewer NU mai e aici — e modal în MobileRootStack)
+ */
 function MobileTabs() {
+  const { tokens } = useContext(ThemeContext);
+  const bg = tokens?.bg ?? "#0B1220";
+
   return (
-    <Tab.Navigator screenOptions={{ headerShown: false }}>
+    <Tab.Navigator
+      tabBar={(props) => <FloatingTabBar {...props} />}
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: {
+          position: "absolute",
+          backgroundColor: "transparent",
+          borderTopWidth: 0,
+          elevation: 0,
+        },
+        tabBarBackground: () => null,
+        tabBarHideOnKeyboard: true,
+        sceneContainerStyle: { backgroundColor: bg },
+      }}
+    >
       <Tab.Screen name={ROUTES.Home} component={HomeScreen} />
       <Tab.Screen name={ROUTES.Search} component={SearchScreen} />
       <Tab.Screen name={ROUTES.AddItem} component={AddItemScreen} />
       <Tab.Screen name={ROUTES.Inbox} component={InboxScreen} />
       <Tab.Screen name={ROUTES.Profile} component={ProfileScreen} />
+
+      {/* Hidden screens (rămân în tabs ca înainte) */}
+      <Tab.Screen
+        name={ROUTES.ItemDetails}
+        component={ItemDetailsScreen}
+        options={{ tabBarButton: () => null }}
+      />
+      <Tab.Screen
+        name={ROUTES.EditItem}
+        component={EditItemScreen}
+        options={{ tabBarButton: () => null }}
+      />
+      <Tab.Screen
+        name={ROUTES.MyItems}
+        component={MyItemsScreen}
+        options={{ tabBarButton: () => null }}
+      />
+      <Tab.Screen
+        name={ROUTES.Favorites}
+        component={FavoritesScreen}
+        options={{ tabBarButton: () => null }}
+      />
+      <Tab.Screen
+        name={ROUTES.ThemeSettings}
+        component={ThemeSettingsScreen}
+        options={{ tabBarButton: () => null }}
+      />
     </Tab.Navigator>
   );
 }
 
-function MobileStack() {
+/**
+ * MOBILE ROOT: Tabs + ImageViewer ca MODAL (nu schimbă tab-ul)
+ * => swipe up/down nu te mai aruncă în Home
+ */
+function MobileRootStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name={ROUTES.Tabs} component={MobileTabs} />
-
-      <Stack.Screen name={ROUTES.ItemDetails} component={ItemDetailsScreen} />
-      <Stack.Screen name={ROUTES.EditItem} component={EditItemScreen} />
-
-      <Stack.Screen name={ROUTES.MyItems} component={MyItemsScreen} />
-      <Stack.Screen name={ROUTES.Favorites} component={FavoritesScreen} />
-
-      {/* ✅ Theme (CU BACK) */}
-      <Stack.Screen
-        name={ROUTES.ThemeSettings}
-        component={ThemeSettingsScreen}
-        options={{
-          headerShown: true,
-          title: "Setări temă",
-          headerTransparent: true,
-          headerTitleStyle: { fontWeight: "900" },
-        }}
-      />
+      <Stack.Screen name="TabsRoot" component={MobileTabs} />
 
       <Stack.Screen
         name={ROUTES.ImageViewer}
         component={ImageViewerScreen}
         options={{
-          presentation: Platform.OS === "ios" ? "transparentModal" : "modal",
+          presentation: "transparentModal",
           animation: "fade",
           contentStyle: { backgroundColor: "transparent" },
         }}
@@ -121,13 +160,12 @@ function WebStack() {
       <Stack.Screen name={ROUTES.MyItems} component={MyItemsScreen} />
       <Stack.Screen name={ROUTES.Favorites} component={FavoritesScreen} />
       <Stack.Screen name={ROUTES.Profile} component={ProfileScreen} />
-
-      {/* ✅ Theme (pe web vrei fără Header.web aici, altfel pare “dublu”) */}
       <Stack.Screen
         name={ROUTES.ThemeSettings}
         component={ThemeSettingsScreen}
         options={{ headerShown: false }}
       />
+      <Stack.Screen name={ROUTES.ImageViewer} component={ImageViewerScreen} />
     </Stack.Navigator>
   );
 }
@@ -135,8 +173,17 @@ function WebStack() {
 function AuthStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name={ROUTES.Welcome} component={WelcomeScreen} />
       <Stack.Screen name={ROUTES.Login} component={LoginScreen} />
       <Stack.Screen name={ROUTES.Register} component={RegisterScreen} />
+      <Stack.Screen
+        name={ROUTES.ForgotPassword}
+        component={ForgotPasswordScreen}
+      />
+      <Stack.Screen
+        name={ROUTES.ResetPassword}
+        component={ResetPasswordScreen}
+      />
     </Stack.Navigator>
   );
 }
@@ -186,7 +233,7 @@ export default function AppNavigator() {
   const AppTree = useMemo(() => {
     if (!sessionReady) return null;
     if (!session) return <AuthStack />;
-    return isWeb ? <WebStack /> : <MobileStack />;
+    return isWeb ? <WebStack /> : <MobileRootStack />;
   }, [sessionReady, session, isWeb]);
 
   return (

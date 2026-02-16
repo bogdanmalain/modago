@@ -1,4 +1,15 @@
 // src/screens/HomeScreen.js (iOS/Android)
+// ============================================
+// MODIFICARE:
+// - FIX: după delete din ItemDetails, Home elimină local anunțul imediat (fără refetch)
+//   -> primește route.params.deletedItemId + șterge din items + curăță favCounts/myFavMap
+//   -> păstrează scroll position (nu sare sus)
+// - Rămâne valabil: NU refacem lista (fetchItems) la focus, doar refresh favorites
+// NU se modifică:
+// - UI: search, chips, grid, carduri, layout inimă
+// - aplicația rămâne default Light (nu auto dark)
+// ============================================
+
 import React, {
   useCallback,
   useEffect,
@@ -18,6 +29,7 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 
 import WelcomeScreen from "./WelcomeScreen";
 import { supabase } from "../supabaseClient";
@@ -34,7 +46,7 @@ import ItemCardDarkProduct from "../components/ItemCardDarkProduct";
 
 import { ThemeContext } from "../theme/ThemeProvider";
 
-export default function HomeScreen({ navigation, query, setQuery }) {
+export default function HomeScreen({ navigation, route, query, setQuery }) {
   const insets = useSafeAreaInsets();
 
   // ✅ Theme (instant switch)
@@ -51,6 +63,38 @@ export default function HomeScreen({ navigation, query, setQuery }) {
   // favorites state
   const [favCounts, setFavCounts] = useState({}); // itemId -> count
   const [myFavMap, setMyFavMap] = useState({}); // itemId -> true
+
+  // ============================================
+  // MODIFICARE: consumăm delete din ItemDetails
+  // ============================================
+  useEffect(() => {
+    const deletedId = route?.params?.deletedItemId;
+    const deletedAt = route?.params?.deletedAt; // doar ca trigger
+
+    if (!deletedId) return;
+
+    setItems((prev) =>
+      Array.isArray(prev)
+        ? prev.filter((it) => String(it?.id) !== String(deletedId))
+        : [],
+    );
+
+    // curățăm și favorites cache ca să nu rămână “fantome”
+    setFavCounts((prev) => {
+      const next = { ...(prev || {}) };
+      delete next[String(deletedId)];
+      return next;
+    });
+
+    setMyFavMap((prev) => {
+      const next = { ...(prev || {}) };
+      delete next[String(deletedId)];
+      return next;
+    });
+
+    // consumăm param-ul ca să nu se reaplice
+    navigation.setParams({ deletedItemId: undefined, deletedAt: undefined });
+  }, [route?.params?.deletedItemId, route?.params?.deletedAt, navigation]);
 
   // 🔎 Search local
   const [localQuery, setLocalQuery] = useState(String(query || ""));
@@ -70,7 +114,8 @@ export default function HomeScreen({ navigation, query, setQuery }) {
   );
   const [activeCat, setActiveCat] = useState("Toate");
 
-  const GAP = 12;
+  // ✅ spacing
+  const GAP = isDark ? 16 : 12;
   const H_PADDING = 14;
   const numColumns = 2;
 
@@ -90,6 +135,33 @@ export default function HomeScreen({ navigation, query, setQuery }) {
     return () => sub?.unsubscribe?.();
   }, []);
 
+  const refreshFavsForList = useCallback(
+    async (list) => {
+      try {
+        const arr = Array.isArray(list) ? list : [];
+        const ids = arr.map((it) => String(it.id));
+        if (ids.length === 0) {
+          setFavCounts({});
+          setMyFavMap({});
+          return;
+        }
+
+        const userId = session?.user?.id;
+
+        const [counts, mine] = await Promise.all([
+          fetchFavoritesCounts(ids),
+          userId ? fetchMyFavoritesMap(userId, ids) : Promise.resolve({}),
+        ]);
+
+        setFavCounts(counts || {});
+        setMyFavMap(mine || {});
+      } catch (err) {
+        // nu blocăm UI-ul pentru favorite refresh
+      }
+    },
+    [session?.user?.id],
+  );
+
   const loadItems = useCallback(async () => {
     setErrorMsg("");
     setLoading(true);
@@ -99,16 +171,8 @@ export default function HomeScreen({ navigation, query, setQuery }) {
       const list = Array.isArray(data) ? data : [];
       setItems(list);
 
-      const ids = list.map((it) => String(it.id));
-      const userId = session?.user?.id;
-
-      const [counts, mine] = await Promise.all([
-        fetchFavoritesCounts(ids),
-        userId ? fetchMyFavoritesMap(userId, ids) : Promise.resolve({}),
-      ]);
-
-      setFavCounts(counts || {});
-      setMyFavMap(mine || {});
+      // initial fav refresh pe lista nouă
+      await refreshFavsForList(list);
     } catch (err) {
       console.log("❌ loadItems error:", err);
       setErrorMsg(err?.message || "Eroare la încărcare produse.");
@@ -118,13 +182,23 @@ export default function HomeScreen({ navigation, query, setQuery }) {
     } finally {
       setLoading(false);
     }
-  }, [session?.user?.id]);
+  }, [refreshFavsForList]);
 
+  // ✅ Load o singură dată la mount (nu la focus)
   useEffect(() => {
-    const unsub = navigation.addListener("focus", loadItems);
     loadItems();
-    return unsub;
-  }, [navigation, loadItems]);
+  }, [loadItems]);
+
+  // ✅ La focus NU mai refacem lista -> doar refresh favorites, ca să nu sară scroll-ul sus
+  useFocusEffect(
+    useCallback(() => {
+      if (items && items.length > 0) {
+        refreshFavsForList(items);
+      } else {
+        loadItems();
+      }
+    }, [items, refreshFavsForList, loadItems]),
+  );
 
   const filteredItems = useMemo(() => {
     const q = String(localQuery || "")
@@ -242,10 +316,8 @@ export default function HomeScreen({ navigation, query, setQuery }) {
       const dots = renderDots(images);
       const onPressCard = () =>
         navigation.navigate(ROUTES.ItemDetails, { item });
-
       const onFav = (e) => onToggleFav(e, item);
 
-      // ✅ Alege cardul în funcție de tema efectivă (instant)
       if (isDark) {
         return (
           <ItemCardDarkProduct
@@ -257,6 +329,7 @@ export default function HomeScreen({ navigation, query, setQuery }) {
             onPressCard={onPressCard}
             onToggleFav={onFav}
             GAP={GAP}
+            tokens={tokens}
           />
         );
       }
@@ -284,12 +357,24 @@ export default function HomeScreen({ navigation, query, setQuery }) {
       onToggleFav,
       renderDots,
       isDark,
+      tokens,
     ],
   );
 
   // ✅ gate AFTER hooks
   const shouldShowWelcome = Platform.OS !== "web" && !isLoggedIn;
   if (shouldShowWelcome) return <WelcomeScreen navigation={navigation} />;
+
+  // ✅ Tokens for chips (TEAL everywhere)
+  const chipActiveBorder = tokens.primary;
+  const chipActiveBg =
+    tokens.primarySoft ||
+    (isDark ? "rgba(58,175,179,0.18)" : "rgba(58,175,179,0.14)");
+  const chipInactiveBorder = tokens.border;
+  const chipInactiveBg = "transparent";
+
+  const chipTextActive = tokens.primary;
+  const chipTextInactive = isDark ? "rgba(255,255,255,0.88)" : tokens.text;
 
   return (
     <View style={[styles.screen, { backgroundColor: tokens.bg }]}>
@@ -304,17 +389,15 @@ export default function HomeScreen({ navigation, query, setQuery }) {
           style={[
             styles.searchRow,
             {
-              backgroundColor: isDark ? "#171a21" : tokens.surface,
-              borderColor: isDark
-                ? "rgba(255,255,255,0.06)"
-                : "rgba(0,0,0,0.06)",
+              backgroundColor: isDark ? "rgba(255,255,255,0.06)" : tokens.card,
+              borderColor: tokens.border,
             },
           ]}
         >
           <Text
             style={[
               styles.searchIcon,
-              { color: isDark ? "rgba(255,255,255,0.85)" : "#64748B" },
+              { color: isDark ? "rgba(255,255,255,0.85)" : tokens.muted },
             ]}
           >
             ⌕
@@ -324,7 +407,9 @@ export default function HomeScreen({ navigation, query, setQuery }) {
             value={localQuery}
             onChangeText={onChangeQuery}
             placeholder="Caută articole sau membri"
-            placeholderTextColor={isDark ? "rgba(255,255,255,0.55)" : "#9aa4b2"}
+            placeholderTextColor={
+              isDark ? "rgba(255,255,255,0.55)" : tokens.muted
+            }
             style={[
               styles.searchInput,
               { color: isDark ? "rgba(255,255,255,0.92)" : tokens.text },
@@ -334,12 +419,14 @@ export default function HomeScreen({ navigation, query, setQuery }) {
           />
 
           <Pressable
-            style={[
+            style={({ pressed }) => [
               styles.cameraBtn,
               {
                 backgroundColor: isDark
-                  ? "rgba(255,255,255,0.06)"
+                  ? "rgba(255,255,255,0.08)"
                   : "rgba(0,0,0,0.05)",
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+                opacity: pressed ? 0.9 : 1,
               },
             ]}
             onPress={() => {}}
@@ -358,34 +445,20 @@ export default function HomeScreen({ navigation, query, setQuery }) {
             renderItem={({ item: c }) => {
               const active = c === activeCat;
 
-              const borderColor = isDark
-                ? active
-                  ? "rgba(46, 209, 201, 0.8)"
-                  : "rgba(255,255,255,0.18)"
-                : active
-                  ? "rgba(47, 107, 255, 0.85)"
-                  : "rgba(0,0,0,0.10)";
-
-              const bg = isDark
-                ? active
-                  ? "rgba(46, 209, 201, 0.14)"
-                  : "transparent"
-                : active
-                  ? "rgba(47, 107, 255, 0.10)"
-                  : "transparent";
-
-              const textColor = isDark
-                ? active
-                  ? "#C8FFFB"
-                  : "rgba(255,255,255,0.90)"
-                : active
-                  ? tokens.accent
-                  : tokens.text;
+              const borderColor = active
+                ? chipActiveBorder
+                : chipInactiveBorder;
+              const bg = active ? chipActiveBg : chipInactiveBg;
+              const textColor = active ? chipTextActive : chipTextInactive;
 
               return (
                 <Pressable
                   onPress={() => setActiveCat(c)}
-                  style={[styles.chipTop, { borderColor, backgroundColor: bg }]}
+                  style={({ pressed }) => [
+                    styles.chipTop,
+                    { borderColor, backgroundColor: bg },
+                    pressed && { transform: [{ scale: 0.98 }], opacity: 0.92 },
+                  ]}
                 >
                   <Text style={[styles.chipTopText, { color: textColor }]}>
                     {c}
@@ -409,7 +482,7 @@ export default function HomeScreen({ navigation, query, setQuery }) {
         <View style={styles.center}>
           <Text style={styles.errorText}>{errorMsg}</Text>
           <TouchableOpacity
-            style={[styles.retryBtn, { backgroundColor: tokens.accent }]}
+            style={[styles.retryBtn, { backgroundColor: tokens.primary }]}
             onPress={loadItems}
             activeOpacity={0.9}
           >
@@ -454,7 +527,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderWidth: 1,
   },
-  searchIcon: { fontSize: 20, marginRight: 8 }, // un pic mai iOS-like
+  searchIcon: { fontSize: 20, marginRight: 8 },
   searchInput: { flex: 1, fontSize: 15, fontWeight: "700" },
 
   cameraBtn: {
@@ -478,7 +551,7 @@ const styles = StyleSheet.create({
   },
   chipTopText: { fontWeight: "900" },
 
-  listContent: { paddingTop: 10, paddingBottom: 26 },
+  listContent: { paddingTop: 12, paddingBottom: 34 },
 
   // dots
   dotsWrap: {

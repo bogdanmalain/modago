@@ -1,10 +1,21 @@
-// src/screens/ItemDetailsScreen.js (iOS / Android)
+// src/screens/ItemDetailsScreen.js
+// ============================================
+// MODIFICARE:
+// - FIX: după delete, Home se actualizează imediat (fără logout/login)
+//   -> trimitem { deletedItemId, deletedAt } către Home și apoi revenim înapoi
+// NU se modifică:
+// - Favorite rămâne sus lângă thumbnails (stil ca Home)
+// - Sync favorites la focus + după toggle
+// - Reset galerie la focus (pornește de la prima poză)
+// ============================================
+
 import React, {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useContext,
 } from "react";
 import {
   View,
@@ -16,8 +27,10 @@ import {
   Pressable,
   Alert,
   Dimensions,
+  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
@@ -27,27 +40,64 @@ import {
   fetchMyFavoritesMap,
   toggleFavorite,
 } from "../services/itemsService";
+import { ThemeContext } from "../theme/ThemeProvider";
 
-const BG = "#141823";
+const FAV_ICON = 44;
+const BADGE_MIN = 22;
+
+function pickTok(tokens, key, fallback) {
+  const v = tokens?.[key];
+  return v !== undefined && v !== null ? v : fallback;
+}
 
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
 }
 
-export default function ItemDetailsScreen({ navigation, route }) {
-  console.log(
-    "✅ ItemDetailsScreen MOBILE LOADED (src/screens/ItemDetailsScreen.js)",
-  );
+function pickById(map, id) {
+  if (!map) return undefined;
+  const sid = String(id ?? "");
+  const nid = Number(id);
+  if (sid && Object.prototype.hasOwnProperty.call(map, sid)) return map[sid];
+  if (!Number.isNaN(nid) && Object.prototype.hasOwnProperty.call(map, nid))
+    return map[nid];
+  return map[id];
+}
 
+export default function ItemDetailsScreen({ navigation, route }) {
+  const { tokens } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
-  const { width: SCREEN_W } = Dimensions.get("window");
+
+  const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
+  const HERO_H = useMemo(() => Math.round(SCREEN_H * 0.6), [SCREEN_H]);
+
+  const S = useMemo(() => makeStyles(tokens, HERO_H), [tokens, HERO_H]);
 
   const passedItem = route?.params?.item || null;
 
   const [session, setSession] = useState(null);
-
-  // item local (pentru UI)
   const [item, setItem] = useState(passedItem);
+
+  const scrollRef = useRef(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const heroPressRef = useRef(null);
+
+  // pulse subtle
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useFocusEffect(
+    useCallback(() => {
+      const fresh = route?.params?.item || null;
+      setItem(fresh);
+
+      // reset galerie la focus
+      setActiveIndex(0);
+      try {
+        scrollRef.current?.scrollTo?.({ x: 0, y: 0, animated: false });
+      } catch {}
+    }, [route?.params?.item]),
+  );
+
   useEffect(() => setItem(passedItem), [passedItem]);
 
   const itemId = useMemo(() => (item?.id ? String(item.id) : null), [item]);
@@ -58,19 +108,25 @@ export default function ItemDetailsScreen({ navigation, route }) {
     return String(item.user_id) === String(userId);
   }, [userId, item?.user_id]);
 
-  // favorites
   const [favCount, setFavCount] = useState(0);
   const [isFav, setIsFav] = useState(false);
   const [favLoading, setFavLoading] = useState(false);
 
-  // carousel
+  const countText = useMemo(() => {
+    const n = Number(favCount || 0);
+    return n > 99 ? "99+" : String(n);
+  }, [favCount]);
+
+  const dynamicBadgeWidth = useMemo(() => {
+    if (countText.length === 1) return BADGE_MIN;
+    if (countText.length === 2) return BADGE_MIN + 6;
+    return BADGE_MIN + 12;
+  }, [countText]);
+
   const images = useMemo(() => {
     const arr = item?.images || [];
     return Array.isArray(arr) ? arr.filter(Boolean) : [];
   }, [item?.images]);
-
-  const scrollRef = useRef(null);
-  const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
     let sub;
@@ -96,8 +152,11 @@ export default function ItemDetailsScreen({ navigation, route }) {
         userId ? fetchMyFavoritesMap(userId, [itemId]) : Promise.resolve({}),
       ]);
 
-      setFavCount((counts && counts[itemId]) || 0);
-      setIsFav(!!(mine && mine[itemId]));
+      const cntRaw = pickById(counts, itemId);
+      const mineHit = pickById(mine, itemId);
+
+      setFavCount(Number(cntRaw ?? 0));
+      setIsFav(Boolean(mineHit));
     } catch (e) {
       console.log("❌ loadFavInfo error:", e);
     }
@@ -107,10 +166,32 @@ export default function ItemDetailsScreen({ navigation, route }) {
     loadFavInfo();
   }, [loadFavInfo]);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadFavInfo();
+    }, [loadFavInfo]),
+  );
+
   const goBackSafe = useCallback(() => {
     if (navigation?.canGoBack?.()) navigation.goBack();
     else navigation.navigate(ROUTES.Home);
   }, [navigation]);
+
+  const runPulse = useCallback(() => {
+    pulse.setValue(1);
+    Animated.sequence([
+      Animated.timing(pulse, {
+        toValue: 1.08,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+      Animated.timing(pulse, {
+        toValue: 1,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [pulse]);
 
   const onToggleFav = useCallback(async () => {
     if (!userId) {
@@ -122,21 +203,23 @@ export default function ItemDetailsScreen({ navigation, route }) {
     const prev = isFav;
     setFavLoading(true);
 
-    // optimistic
-    setIsFav(!prev);
+    const next = !prev;
+    setIsFav(next);
     setFavCount((c) => Math.max(0, c + (prev ? -1 : 1)));
+
+    if (next) runPulse();
 
     try {
       await toggleFavorite({ userId, itemId, isFav: prev });
+      await loadFavInfo();
     } catch (e) {
-      // rollback
       setIsFav(prev);
       setFavCount((c) => Math.max(0, c + (prev ? 1 : -1)));
       console.log("❌ toggleFavorite error:", e);
     } finally {
       setFavLoading(false);
     }
-  }, [userId, itemId, isFav, navigation]);
+  }, [userId, itemId, isFav, navigation, loadFavInfo, runPulse]);
 
   const onDelete = useCallback(async () => {
     if (!itemId) return;
@@ -149,15 +232,29 @@ export default function ItemDetailsScreen({ navigation, route }) {
         onPress: async () => {
           try {
             await deleteItemById(itemId);
-            Alert.alert("Șters", "Anunțul a fost șters.");
-            goBackSafe();
+
+            // ✅ trimite către Home (update local) + apoi back
+            Alert.alert("Șters", "Anunțul a fost șters.", [
+              {
+                text: "OK",
+                onPress: () => {
+                  navigation.navigate(ROUTES.Home, {
+                    deletedItemId: String(itemId),
+                    deletedAt: Date.now(),
+                  });
+
+                  if (navigation?.canGoBack?.()) navigation.goBack();
+                  else navigation.navigate(ROUTES.Home);
+                },
+              },
+            ]);
           } catch (e) {
             Alert.alert("Eroare", e?.message || "Nu pot șterge anunțul.");
           }
         },
       },
     ]);
-  }, [itemId, goBackSafe]);
+  }, [itemId, navigation]);
 
   const onEdit = useCallback(() => {
     if (!item) return;
@@ -182,14 +279,35 @@ export default function ItemDetailsScreen({ navigation, route }) {
     [SCREEN_W, images.length],
   );
 
-  // ✅ AICI e “efectul”: deschide viewer fullscreen
   const openViewer = useCallback(
-    (startIndex = 0) => {
+    (start = 0) => {
       if (!images || images.length === 0) return;
 
-      navigation.navigate(ROUTES.ImageViewer, {
-        images,
-        startIndex: clamp(startIndex, 0, Math.max(0, images.length - 1)),
+      const startIndex = clamp(start, 0, Math.max(0, images.length - 1));
+      const originUri = images[startIndex];
+
+      const node = heroPressRef.current;
+      if (!node?.measureInWindow) {
+        navigation.navigate(ROUTES.ImageViewer, {
+          images,
+          startIndex,
+          originUri,
+        });
+        return;
+      }
+
+      node.measureInWindow((x, y, w, h) => {
+        const origin =
+          Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0
+            ? { x, y, width: w, height: h }
+            : null;
+
+        navigation.navigate(ROUTES.ImageViewer, {
+          images,
+          startIndex,
+          origin,
+          originUri,
+        });
       });
     },
     [navigation, images],
@@ -197,35 +315,37 @@ export default function ItemDetailsScreen({ navigation, route }) {
 
   if (!item) {
     return (
-      <View style={[styles.safe, { paddingTop: Math.max(insets.top, 14) }]}>
-        <View style={styles.topBar}>
-          <Pressable onPress={goBackSafe} style={styles.topBtn} hitSlop={12}>
-            <Text style={styles.topBtnText}>←</Text>
+      <View style={[S.safe, { paddingTop: Math.max(insets.top, 14) }]}>
+        <View style={S.topBar}>
+          <Pressable onPress={goBackSafe} style={S.topBtn} hitSlop={12}>
+            <Text style={S.topBtnText}>←</Text>
           </Pressable>
         </View>
 
-        <View style={styles.center}>
-          <Text style={styles.errTitle}>Nu am primit datele produsului.</Text>
-          <Text style={styles.errSub}>
+        <View style={S.center}>
+          <Text style={S.errTitle}>Nu am primit datele produsului.</Text>
+          <Text style={S.errSub}>
             Întoarce-te înapoi și deschide anunțul din listă.
           </Text>
 
           <TouchableOpacity
-            style={styles.primaryBtn}
+            style={S.primaryBtn}
             onPress={() => navigation.navigate(ROUTES.Home)}
             activeOpacity={0.9}
           >
-            <Text style={styles.primaryText}>Mergi la Home</Text>
+            <Text style={S.primaryText}>Mergi la Home</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
+  const fabTop = Math.max(insets.top, 10);
+
   return (
-    <View style={styles.safe}>
-      {/* zona imagini + butoane overlay */}
-      <View style={[styles.mediaWrap, { marginTop: Math.max(insets.top, 10) }]}>
+    <View style={S.safe}>
+      {/* HERO */}
+      <View style={S.mediaWrap}>
         <ScrollView
           ref={scrollRef}
           horizontal
@@ -238,122 +358,122 @@ export default function ItemDetailsScreen({ navigation, route }) {
           {images.length > 0 ? (
             images.map((uri, idx) => (
               <Pressable
+                ref={idx === activeIndex ? heroPressRef : null}
                 key={`${uri}-${idx}`}
                 onPress={() => openViewer(idx)}
                 style={{ width: SCREEN_W }}
               >
-                <Image
-                  source={{ uri }}
-                  style={styles.heroImg}
-                  resizeMode="cover"
-                />
+                <Image source={{ uri }} style={S.heroImg} resizeMode="cover" />
               </Pressable>
             ))
           ) : (
-            <View style={[styles.heroImg, styles.noImg]}>
-              <Text style={{ color: "#cbd5e1", fontWeight: "900" }}>
-                Fără imagine
-              </Text>
+            <View style={[S.heroImg, S.noImg]}>
+              <Text style={S.noImgText}>Fără imagine</Text>
             </View>
           )}
         </ScrollView>
 
-        {/* back */}
+        {/* Back pe imagine */}
         <Pressable
           onPress={goBackSafe}
-          style={[styles.fab, { left: 14 }]}
+          style={[S.fab, { left: 14, top: fabTop }]}
           hitSlop={12}
         >
-          <Text style={styles.fabIcon}>←</Text>
+          <Text style={S.fabIcon}>←</Text>
         </Pressable>
 
-        {/* fav */}
-        <Pressable
-          onPress={onToggleFav}
-          style={[styles.fab, { right: 14 }]}
-          hitSlop={12}
-          disabled={favLoading}
-        >
-          <Text style={[styles.fabIcon, isFav && { color: "#ef4444" }]}>
-            {isFav ? "♥" : "♡"}
-          </Text>
-
-          <View style={styles.favCountPill}>
-            <Text style={styles.favCountText}>{favCount}</Text>
-          </View>
-        </Pressable>
-
-        {/* dots */}
         {images.length > 1 ? (
-          <View style={styles.dots}>
+          <View style={S.dots}>
             {images.map((_, i) => (
-              <View
-                key={i}
-                style={[styles.dot, i === activeIndex && styles.dotActive]}
-              />
+              <View key={i} style={[S.dot, i === activeIndex && S.dotActive]} />
             ))}
           </View>
         ) : null}
       </View>
 
-      {/* thumbnails */}
-      {images.length > 1 ? (
-        <View style={styles.thumbsRow}>
-          {images.slice(0, 8).map((uri, idx) => (
-            <Pressable
-              key={`${uri}-t-${idx}`}
-              onPress={() => jumpTo(idx)}
-              onLongPress={() => openViewer(idx)}
+      {/* BAR: thumbnails + favorite */}
+      <View style={S.thumbsBar}>
+        <View style={[S.thumbsRow, images.length <= 1 && { opacity: 0 }]}>
+          {images.length > 1
+            ? images.slice(0, 8).map((uri, idx) => (
+                <Pressable
+                  key={`${uri}-t-${idx}`}
+                  onPress={() => jumpTo(idx)}
+                  onLongPress={() => openViewer(idx)}
+                  style={[
+                    S.thumbWrap,
+                    idx === activeIndex && S.thumbWrapActive,
+                  ]}
+                >
+                  <Image source={{ uri }} style={S.thumb} resizeMode="cover" />
+                </Pressable>
+              ))
+            : null}
+        </View>
+
+        <View style={{ position: "relative" }}>
+          <Pressable onPress={onToggleFav} disabled={favLoading} hitSlop={8}>
+            <Animated.View
               style={[
-                styles.thumbWrap,
-                idx === activeIndex && styles.thumbWrapActive,
+                S.favCircle,
+                isFav ? S.favCircleActive : S.favCircleIdle,
+                { transform: [{ scale: pulse }] },
               ]}
             >
-              <Image source={{ uri }} style={styles.thumb} resizeMode="cover" />
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
+              {!isFav ? (
+                <Text style={S.heartGhost}>♡</Text>
+              ) : (
+                <Text style={S.heartSolid}>❤</Text>
+              )}
+            </Animated.View>
+          </Pressable>
 
-      {/* butoane owner */}
+          {favCount > 0 ? (
+            <View style={[S.countPill, { minWidth: dynamicBadgeWidth }]}>
+              <Text style={S.countText}>{countText}</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+
       {isOwner ? (
-        <View style={styles.ownerRow}>
+        <View style={S.ownerRow}>
           <TouchableOpacity
-            style={[styles.ownerBtn, styles.ownerBtnEdit]}
+            style={[S.ownerBtn, S.ownerBtnEdit]}
             onPress={onEdit}
             activeOpacity={0.9}
           >
-            <Text style={styles.ownerBtnText}>Editează</Text>
+            <Text style={S.ownerBtnText}>Editează</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.ownerBtn, styles.ownerBtnDel]}
+            style={[S.ownerBtn, S.ownerBtnDel]}
             onPress={onDelete}
             activeOpacity={0.9}
           >
-            <Text style={styles.ownerBtnText}>Șterge</Text>
+            <Text style={S.ownerBtnText}>Șterge</Text>
           </TouchableOpacity>
         </View>
       ) : null}
 
-      {/* content */}
+      {/* CONTENT */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, paddingBottom: 26 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>{item.title || "Produs"}</Text>
+        <Text style={S.title}>{item.title || "Produs"}</Text>
 
-        <Text style={styles.price}>
+        <Text style={S.price}>
           {typeof item.price === "number" ? item.price : item.price || "-"} lei
         </Text>
 
         {!!item.category ? (
-          <Text style={styles.cat}>Categorie: {item.category}</Text>
+          <Text style={S.cat}>Categorie: {item.category}</Text>
         ) : null}
 
-        <Text style={styles.section}>Descriere</Text>
-        <Text style={styles.desc}>{item.description || "—"}</Text>
+        <Text style={S.section}>Descriere</Text>
+        <Text style={S.desc}>{item.description || "—"}</Text>
 
         <View style={{ height: Math.max(insets.bottom, 10) }} />
       </ScrollView>
@@ -361,145 +481,208 @@ export default function ItemDetailsScreen({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#fff" },
+function makeStyles(tokens, HERO_H) {
+  const bg = pickTok(tokens, "bg", "#0B1220");
+  const card = pickTok(tokens, "card", "#0B1620");
+  const text = pickTok(tokens, "text", "#EAF2F7");
+  const muted = pickTok(
+    tokens,
+    "muted",
+    pickTok(tokens, "subtext", "rgba(255,255,255,0.60)"),
+  );
+  const border = pickTok(tokens, "border", "rgba(255,255,255,0.08)");
+  const primary = pickTok(tokens, "primary", "#2CA6A4");
+  const danger = pickTok(tokens, "danger", "#EF4444");
+  const shadowColor = pickTok(tokens, "shadowColor", "#000");
+  const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
 
-  mediaWrap: {
-    backgroundColor: BG,
-  },
-  heroImg: {
-    width: "100%",
-    height: 340,
-    backgroundColor: "#0b0f1a",
-  },
-  noImg: { alignItems: "center", justifyContent: "center" },
+  const mediaBg = pickTok(tokens, "mediaBg", "rgba(0,0,0,0.35)");
+  const fabBg = pickTok(tokens, "fabBg", "rgba(255,255,255,0.92)");
 
-  fab: {
-    position: "absolute",
-    top: 14,
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  fabIcon: { fontSize: 22, fontWeight: "900", color: "#111" },
+  const favIdleBg = pickTok(tokens, "favIdleBg", "rgba(255,255,255,0.06)");
+  const favIdleBorder = pickTok(
+    tokens,
+    "favIdleBorder",
+    "rgba(255,255,255,0.14)",
+  );
+  const favGhost = pickTok(tokens, "favGhost", "rgba(255,255,255,0.75)");
 
-  favCountPill: {
-    position: "absolute",
-    right: -6,
-    bottom: -6,
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: "#111827",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 6,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.95)",
-  },
-  favCountText: { color: "#fff", fontWeight: "900", fontSize: 12 },
+  const favActiveBg = pickTok(tokens, "favActiveBg", "rgba(255,255,255,0.95)");
+  const favActiveBorder = pickTok(
+    tokens,
+    "favActiveBorder",
+    "rgba(255,255,255,0.35)",
+  );
 
-  dots: {
-    position: "absolute",
-    bottom: 12,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 7,
-  },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 99,
-    backgroundColor: "rgba(255,255,255,0.35)",
-  },
-  dotActive: { backgroundColor: "rgba(255,255,255,0.95)" },
+  const badgeBorder = pickTok(tokens, "badgeBorder", "rgba(255,255,255,0.95)");
 
-  thumbsRow: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "#fff",
-  },
-  thumbWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 12,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "rgba(0,0,0,0.12)",
-  },
-  thumbWrapActive: { borderColor: "#0B69FF" },
-  thumb: { width: "100%", height: "100%" },
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: bg },
 
-  ownerRow: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 6,
-    paddingBottom: 8,
-    backgroundColor: "#fff",
-  },
-  ownerBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ownerBtnEdit: { backgroundColor: "#111827" },
-  ownerBtnDel: { backgroundColor: "#b91c1c" },
-  ownerBtnText: { color: "#fff", fontWeight: "900", fontSize: 16 },
+    mediaWrap: { backgroundColor: mediaBg },
+    heroImg: { width: "100%", height: HERO_H, backgroundColor: mediaBg },
+    noImg: { alignItems: "center", justifyContent: "center" },
+    noImgText: { color: onPrimary, fontWeight: "900" },
 
-  title: { fontSize: 40, fontWeight: "900", marginTop: 6, color: "#111" },
-  price: { fontSize: 34, fontWeight: "900", color: "#0B69FF", marginTop: 6 },
-  cat: { marginTop: 10, color: "#6b7280", fontWeight: "800" },
+    fab: {
+      position: "absolute",
+      width: 46,
+      height: 46,
+      borderRadius: 23,
+      backgroundColor: fabBg,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: border,
+      shadowColor,
+      shadowOpacity: 0.12,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 4,
+    },
+    fabIcon: { fontSize: 22, fontWeight: "900", color: "#111" },
 
-  section: { marginTop: 22, fontSize: 22, fontWeight: "900", color: "#111" },
-  desc: { marginTop: 8, fontSize: 16, lineHeight: 22, color: "#111" },
+    dots: {
+      position: "absolute",
+      bottom: 12,
+      left: 0,
+      right: 0,
+      flexDirection: "row",
+      justifyContent: "center",
+      gap: 7,
+    },
+    dot: {
+      width: 7,
+      height: 7,
+      borderRadius: 99,
+      backgroundColor: "rgba(255,255,255,0.35)",
+    },
+    dotActive: { backgroundColor: "rgba(255,255,255,0.95)" },
 
-  topBar: { paddingHorizontal: 14, paddingBottom: 8 },
-  topBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  topBtnText: { fontSize: 22, fontWeight: "900", color: "#111" },
+    thumbsBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      gap: 12,
+      backgroundColor: bg,
+    },
+    thumbsRow: { flex: 1, flexDirection: "row", gap: 10 },
 
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-  },
-  errTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#111",
-    textAlign: "center",
-  },
-  errSub: {
-    marginTop: 8,
-    color: "#6b7280",
-    textAlign: "center",
-    fontWeight: "700",
-  },
-  primaryBtn: {
-    marginTop: 14,
-    height: 44,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    backgroundColor: "#0B69FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryText: { color: "#fff", fontWeight: "900" },
-});
+    thumbWrap: {
+      width: 56,
+      height: 56,
+      borderRadius: 12,
+      overflow: "hidden",
+      borderWidth: 2,
+      borderColor: border,
+      backgroundColor: card,
+    },
+    thumbWrapActive: { borderColor: primary },
+    thumb: { width: "100%", height: "100%" },
+
+    favCircle: {
+      width: FAV_ICON,
+      height: FAV_ICON,
+      borderRadius: FAV_ICON / 2,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    favCircleIdle: {
+      backgroundColor: favIdleBg,
+      borderWidth: 1,
+      borderColor: favIdleBorder,
+    },
+    favCircleActive: {
+      backgroundColor: favActiveBg,
+      borderWidth: 2,
+      borderColor: favActiveBorder,
+    },
+    heartGhost: { fontSize: 18, color: favGhost, fontWeight: "900" },
+    heartSolid: { fontSize: 18, color: danger, fontWeight: "900" },
+
+    countPill: {
+      position: "absolute",
+      right: -6,
+      bottom: -6,
+      height: BADGE_MIN,
+      paddingHorizontal: 6,
+      borderRadius: 999,
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 2,
+      borderColor: badgeBorder,
+      zIndex: 10,
+    },
+    countText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+
+    ownerRow: {
+      flexDirection: "row",
+      gap: 10,
+      paddingHorizontal: 16,
+      paddingTop: 6,
+      paddingBottom: 8,
+      backgroundColor: bg,
+    },
+    ownerBtn: {
+      flex: 1,
+      height: 44,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    ownerBtnEdit: { backgroundColor: primary },
+    ownerBtnDel: { backgroundColor: danger },
+    ownerBtnText: { color: onPrimary, fontWeight: "900", fontSize: 16 },
+
+    title: { fontSize: 40, fontWeight: "900", marginTop: 6, color: text },
+    price: { fontSize: 34, fontWeight: "900", color: primary, marginTop: 6 },
+    cat: { marginTop: 10, color: muted, fontWeight: "800" },
+
+    section: { marginTop: 22, fontSize: 22, fontWeight: "900", color: text },
+    desc: { marginTop: 8, fontSize: 16, lineHeight: 22, color: text },
+
+    topBar: { paddingHorizontal: 14, paddingBottom: 8 },
+    topBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: fabBg,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: border,
+    },
+    topBtnText: { fontSize: 22, fontWeight: "900", color: "#111" },
+
+    center: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+    },
+    errTitle: {
+      fontSize: 18,
+      fontWeight: "900",
+      color: text,
+      textAlign: "center",
+    },
+    errSub: {
+      marginTop: 8,
+      color: muted,
+      textAlign: "center",
+      fontWeight: "700",
+    },
+    primaryBtn: {
+      marginTop: 14,
+      height: 44,
+      paddingHorizontal: 14,
+      borderRadius: 12,
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    primaryText: { color: onPrimary, fontWeight: "900" },
+  });
+}

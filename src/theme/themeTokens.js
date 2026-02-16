@@ -1,4 +1,8 @@
 // src/theme/themeTokens.js
+
+// ✅ Culoarea oficială ModaGo (teal din logo / Welcome)
+export const MODAGO_BRAND = "#3fa9b5";
+
 export const THEME = {
   light: {
     scheme: "light",
@@ -11,12 +15,19 @@ export const THEME = {
     border: "rgba(0,0,0,0.08)",
     divider: "rgba(0,0,0,0.06)",
 
-    primary: "#2563EB",
-    primarySoft: "#E5EEFF",
+    // ✅ Brand
+    primary: MODAGO_BRAND,
+    accent: MODAGO_BRAND,
+    onPrimary: "#FFFFFF",
+    primarySoft: "rgba(63, 169, 181, 0.14)",
 
     danger: "#EF4444",
 
     shadowColor: "#000",
+
+    // opționale folosite în UI
+    mediaBg: "rgba(0,0,0,0.25)",
+    fabBg: "rgba(255,255,255,0.92)",
   },
 
   dark: {
@@ -30,11 +41,18 @@ export const THEME = {
     border: "rgba(255,255,255,0.10)",
     divider: "rgba(255,255,255,0.08)",
 
-    primary: "#60A5FA",
-    primarySoft: "rgba(96,165,250,0.18)",
+    // ✅ Brand
+    primary: MODAGO_BRAND,
+    accent: MODAGO_BRAND,
+    onPrimary: "#FFFFFF",
+    primarySoft: "rgba(63, 169, 181, 0.18)",
 
     danger: "#F87171",
 
     shadowColor: "#000",
+
+    // opționale folosite în UI
+    mediaBg: "rgba(0,0,0,0.35)",
+    fabBg: "rgba(255,255,255,0.12)",
   },
 };

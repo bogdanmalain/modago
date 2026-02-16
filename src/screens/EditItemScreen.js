@@ -1,5 +1,14 @@
-// src/screens/EditItemScreen.js (iOS / Android)
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+// src/screens/EditItemScreen.js
+// Editare anunț + upload poze + reordonare poze (iOS/Android). Theme-aware via tokens.
+// FIX: MOBILE images normalize -> max 1600px long side + real JPEG (0.85)
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useContext,
+} from "react";
 import {
   View,
   Text,
@@ -21,32 +30,26 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import { updateItem, deleteItemById } from "../services/itemsService";
+import { ThemeContext } from "../theme/ThemeProvider";
 
-const STORAGE_BUCKET = "items"; // ✅ bucket-ul tău real
+const STORAGE_BUCKET = "items";
 const MAX_IMAGES = 6;
 
-function getExt(uri = "") {
-  const clean = String(uri).split("?")[0];
-  const dot = clean.lastIndexOf(".");
-  if (dot === -1) return "jpg";
-  return clean.slice(dot + 1).toLowerCase();
+// ✅ standard: max long side
+const MAX_LONG_SIDE = 1600;
+const JPEG_QUALITY = 0.85;
+
+function pickTok(tokens, key, fallback) {
+  const v = tokens?.[key];
+  return v !== undefined && v !== null ? v : fallback;
 }
 
-function guessContentType(ext) {
-  if (ext === "png") return "image/png";
-  if (ext === "webp") return "image/webp";
-  // după conversie nu mai urcăm heic/heif, dar păstrăm fallback:
-  if (ext === "heic" || ext === "heif") return "image/heic";
-  return "image/jpeg";
-}
-
-function makeFilePath(userId, ext) {
+function makeFilePath(userId) {
   const rand = Math.random().toString(36).slice(2);
   const ts = Date.now();
-  return `${userId}/${ts}_${rand}.${ext}`;
+  return `${userId}/${ts}_${rand}.jpg`; // ✅ mereu jpg (după conversie)
 }
 
-// base64 -> Uint8Array (safe pentru supabase upload pe mobile)
 function base64ToUint8Array(base64) {
   const binary = global.atob ? global.atob(base64) : atob(base64);
   const len = binary.length;
@@ -55,40 +58,51 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
-// ✅ Convert HEIC/HEIF -> JPG (ca să fie afișabil sigur)
-async function ensureJpegIfHeic(uri) {
-  const ext = getExt(uri);
-  if (ext !== "heic" && ext !== "heif") return { uri, ext };
+/**
+ * ✅ MOBILE: resize la max 1600px pe latura mare + JPEG real (0.85)
+ */
+async function normalizeToJpegMobile(uri, meta) {
+  const w = Number(meta?.width) || null;
+  const h = Number(meta?.height) || null;
 
-  const result = await ImageManipulator.manipulateAsync(uri, [], {
-    compress: 0.85,
+  let actions = [];
+
+  if (w && h) {
+    const longSide = Math.max(w, h);
+    if (longSide > MAX_LONG_SIDE) {
+      if (w >= h) actions.push({ resize: { width: MAX_LONG_SIDE } });
+      else actions.push({ resize: { height: MAX_LONG_SIDE } });
+    }
+  } else {
+    // fallback
+    actions.push({ resize: { width: MAX_LONG_SIDE } });
+  }
+
+  const result = await ImageManipulator.manipulateAsync(uri, actions, {
+    compress: JPEG_QUALITY,
     format: ImageManipulator.SaveFormat.JPEG,
   });
 
-  return { uri: result.uri, ext: "jpg" };
+  if (!result?.uri)
+    throw new Error("Nu am putut normaliza poza (JPEG/resize).");
+  return result.uri;
 }
 
-async function uploadImageToSupabase({ uri, userId }) {
+async function uploadImageToSupabase({ uri, userId, meta }) {
   if (!uri) throw new Error("Lipsește uri pentru upload.");
   if (!userId) throw new Error("Lipsește userId pentru upload.");
 
-  // ✅ normalize (HEIC->JPG)
-  const normalized = await ensureJpegIfHeic(uri);
+  const path = makeFilePath(userId);
 
-  const ext = normalized.ext;
-  const contentType = guessContentType(ext);
-  const path = makeFilePath(userId, ext);
-
-  // ✅ WEB: blob merge
+  // ✅ WEB: blob direct
   if (Platform.OS === "web") {
-    const res = await fetch(normalized.uri);
+    const res = await fetch(uri);
     if (!res.ok) throw new Error("Nu pot citi poza (fetch a eșuat).");
-
     const blob = await res.blob();
 
     const { error: upErr } = await supabase.storage
       .from(STORAGE_BUCKET)
-      .upload(path, blob, { contentType, upsert: false });
+      .upload(path, blob, { contentType: "image/jpeg", upsert: false });
 
     if (upErr) throw upErr;
 
@@ -98,25 +112,22 @@ async function uploadImageToSupabase({ uri, userId }) {
     return publicUrl;
   }
 
-  // ✅ MOBILE: FileSystem base64 -> Uint8Array (identic cu AddItem)
-  const info = await FileSystem.getInfoAsync(normalized.uri);
-  if (!info?.exists) {
-    throw new Error("Fișierul nu există pe device (getInfoAsync).");
-  }
+  // ✅ MOBILE: resize + JPEG real
+  const jpegUri = await normalizeToJpegMobile(uri, meta);
 
-  const base64 = await FileSystem.readAsStringAsync(normalized.uri, {
+  const info = await FileSystem.getInfoAsync(jpegUri);
+  if (!info?.exists) throw new Error("Fișierul JPEG nu există pe device.");
+
+  const base64 = await FileSystem.readAsStringAsync(jpegUri, {
     encoding: FileSystem.EncodingType.Base64,
   });
-
-  if (!base64) {
-    throw new Error("Nu pot citi poza (base64 gol).");
-  }
+  if (!base64) throw new Error("Nu pot citi poza (base64 gol).");
 
   const bytes = base64ToUint8Array(base64);
 
   const { error: upErr } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .upload(path, bytes, { contentType, upsert: false });
+    .upload(path, bytes, { contentType: "image/jpeg", upsert: false });
 
   if (upErr) throw upErr;
 
@@ -128,6 +139,8 @@ async function uploadImageToSupabase({ uri, userId }) {
 
 export default function EditItemScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
+  const { tokens } = useContext(ThemeContext);
+
   const passedItem = route?.params?.item || null;
 
   const [session, setSession] = useState(null);
@@ -153,6 +166,8 @@ export default function EditItemScreen({ navigation, route }) {
     [passedItem],
   );
   const userId = session?.user?.id || null;
+
+  const S = useMemo(() => makeStyles(tokens), [tokens]);
 
   useEffect(() => {
     let sub;
@@ -205,7 +220,7 @@ export default function EditItemScreen({ navigation, route }) {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
       selectionLimit: MAX_IMAGES - images.length,
-      quality: 0.85,
+      quality: 1,
     });
 
     if (result.canceled) return;
@@ -219,7 +234,11 @@ export default function EditItemScreen({ navigation, route }) {
       for (const a of assets) {
         if (!a?.uri) continue;
 
-        const url = await uploadImageToSupabase({ uri: a.uri, userId });
+        const url = await uploadImageToSupabase({
+          uri: a.uri,
+          userId,
+          meta: { width: a?.width, height: a?.height },
+        });
         newUrls.push(url);
       }
 
@@ -272,7 +291,9 @@ export default function EditItemScreen({ navigation, route }) {
       return;
     }
 
-    const p = String(price || "").trim();
+    const p = String(price || "")
+      .trim()
+      .replace(",", ".");
     const priceNum = p === "" ? null : Number(p);
     if (p !== "" && Number.isNaN(priceNum)) {
       Alert.alert("Preț", "Prețul trebuie să fie număr.");
@@ -286,7 +307,7 @@ export default function EditItemScreen({ navigation, route }) {
         description: String(description || ""),
         price: priceNum,
         category: String(category || ""),
-        images: images, // ✅ array de URL-uri
+        images: images,
       };
 
       await updateItem(itemId, payload);
@@ -328,31 +349,31 @@ export default function EditItemScreen({ navigation, route }) {
 
   if (!passedItem) {
     return (
-      <View style={[styles.screen, { paddingTop: insets.top + 12 }]}>
+      <View style={[S.screen, { paddingTop: insets.top + 12 }]}>
         <Pressable
           onPress={goBackSafe}
-          style={[styles.backBtn, { top: insets.top + 10 }]}
+          style={[S.backBtn, { top: insets.top + 10 }]}
           hitSlop={12}
         >
-          <Text style={styles.backText}>←</Text>
+          <Text style={S.backText}>←</Text>
         </Pressable>
 
-        <View style={styles.center}>
-          <Text style={styles.h1}>Nu am primit anunțul.</Text>
-          <Text style={styles.muted}>Întoarce-te și deschide din listă.</Text>
+        <View style={S.center}>
+          <Text style={S.h1}>Nu am primit anunțul.</Text>
+          <Text style={S.muted}>Întoarce-te și deschide din listă.</Text>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={styles.screen}>
+    <View style={S.screen}>
       <Pressable
         onPress={goBackSafe}
-        style={[styles.backBtn, { top: insets.top + 10 }]}
+        style={[S.backBtn, { top: insets.top + 10 }]}
         hitSlop={12}
       >
-        <Text style={styles.backText}>←</Text>
+        <Text style={S.backText}>←</Text>
       </Pressable>
 
       <ScrollView
@@ -368,16 +389,16 @@ export default function EditItemScreen({ navigation, route }) {
           value={title}
           onChangeText={setTitle}
           placeholder="Titlu"
-          placeholderTextColor="#9aa4b2"
-          style={styles.input}
+          placeholderTextColor={S.placeholder.color}
+          style={S.input}
         />
 
         <TextInput
           value={description}
           onChangeText={setDescription}
           placeholder="Descriere"
-          placeholderTextColor="#9aa4b2"
-          style={[styles.input, styles.textArea]}
+          placeholderTextColor={S.placeholder.color}
+          style={[S.input, S.textArea]}
           multiline
         />
 
@@ -385,8 +406,8 @@ export default function EditItemScreen({ navigation, route }) {
           value={price}
           onChangeText={setPrice}
           placeholder="Preț"
-          placeholderTextColor="#9aa4b2"
-          style={styles.input}
+          placeholderTextColor={S.placeholder.color}
+          style={S.input}
           keyboardType={Platform.OS === "ios" ? "number-pad" : "numeric"}
         />
 
@@ -394,62 +415,58 @@ export default function EditItemScreen({ navigation, route }) {
           value={category}
           onChangeText={setCategory}
           placeholder="Categorie"
-          placeholderTextColor="#9aa4b2"
-          style={styles.input}
+          placeholderTextColor={S.placeholder.color}
+          style={S.input}
         />
 
         <TouchableOpacity
           onPress={pickAndAddImages}
           activeOpacity={0.9}
-          style={[styles.addPhotosBtn, uploading && { opacity: 0.7 }]}
+          style={[S.addPhotosBtn, uploading && { opacity: 0.7 }]}
           disabled={uploading}
         >
           {uploading ? (
             <ActivityIndicator />
           ) : (
-            <Text style={styles.addPhotosText}>
+            <Text style={S.addPhotosText}>
               Adaugă poze ({images.length}/{MAX_IMAGES})
             </Text>
           )}
         </TouchableOpacity>
 
-        <View style={styles.grid}>
+        <View style={S.grid}>
           {images.map((uri, idx) => (
-            <View key={`${uri}-${idx}`} style={styles.tile}>
-              <Image
-                source={{ uri }}
-                style={styles.tileImg}
-                resizeMode="cover"
-              />
+            <View key={`${uri}-${idx}`} style={S.tile}>
+              <Image source={{ uri }} style={S.tileImg} resizeMode="cover" />
 
-              <View style={styles.tileActions}>
+              <View style={S.tileActions}>
                 <TouchableOpacity
                   onPress={() => moveUp(idx)}
-                  style={[styles.actionBtn, idx === 0 && styles.actionDisabled]}
+                  style={[S.actionBtn, idx === 0 && S.actionDisabled]}
                   disabled={idx === 0}
                   activeOpacity={0.9}
                 >
-                  <Text style={styles.actionText}>↑</Text>
+                  <Text style={S.actionText}>↑</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   onPress={() => moveDown(idx)}
                   style={[
-                    styles.actionBtn,
-                    idx === images.length - 1 && styles.actionDisabled,
+                    S.actionBtn,
+                    idx === images.length - 1 && S.actionDisabled,
                   ]}
                   disabled={idx === images.length - 1}
                   activeOpacity={0.9}
                 >
-                  <Text style={styles.actionText}>↓</Text>
+                  <Text style={S.actionText}>↓</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   onPress={() => removeAt(idx)}
-                  style={[styles.actionBtn, styles.actionDelete]}
+                  style={[S.actionBtn, S.actionDelete]}
                   activeOpacity={0.9}
                 >
-                  <Text style={styles.actionText}>✕</Text>
+                  <Text style={S.actionText}>✕</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -459,144 +476,171 @@ export default function EditItemScreen({ navigation, route }) {
         <TouchableOpacity
           onPress={onSave}
           activeOpacity={0.9}
-          style={[styles.primaryBtn, saving && { opacity: 0.7 }]}
+          style={[S.primaryBtn, saving && { opacity: 0.7 }]}
           disabled={saving}
         >
           {saving ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={S.onPrimary.color} />
           ) : (
-            <Text style={styles.primaryText}>Salvează</Text>
+            <Text style={S.primaryText}>Salvează</Text>
           )}
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={onDeleteItem}
           activeOpacity={0.9}
-          style={[styles.deleteBtn, saving && { opacity: 0.7 }]}
+          style={[S.deleteBtn, saving && { opacity: 0.7 }]}
           disabled={saving}
         >
-          <Text style={styles.deleteText}>Șterge anunțul</Text>
+          <Text style={S.deleteText}>Șterge anunțul</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#fff" },
+function makeStyles(tokens) {
+  const bg = pickTok(tokens, "bg", "#F3F4F6");
+  const card = pickTok(tokens, "card", "#FFFFFF");
+  const text = pickTok(tokens, "text", "#111827");
+  const muted = pickTok(tokens, "muted", pickTok(tokens, "subtext", "#6B7280"));
+  const border = pickTok(tokens, "border", "rgba(0,0,0,0.08)");
+  const primary = pickTok(
+    tokens,
+    "primary",
+    pickTok(tokens, "accent", "#2563EB"),
+  );
+  const danger = pickTok(tokens, "danger", "#EF4444");
+  const shadowColor = pickTok(tokens, "shadowColor", "#000");
+  const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
 
-  backBtn: {
-    position: "absolute",
-    left: 14,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0,0,0,0.08)",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 999,
-    elevation: 10,
-  },
-  backText: { fontSize: 22, fontWeight: "900", color: "#111" },
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: bg },
 
-  input: {
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.10)",
-    paddingHorizontal: 14,
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#111",
-    marginBottom: 14,
-    backgroundColor: "#fff",
-  },
-  textArea: {
-    height: 120,
-    paddingTop: 14,
-    textAlignVertical: "top",
-  },
+    backBtn: {
+      position: "absolute",
+      left: 14,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: card,
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 999,
+      elevation: 10,
+      shadowColor,
+      shadowOpacity: 0.12,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 6 },
+      borderWidth: 1,
+      borderColor: border,
+    },
+    backText: { fontSize: 22, fontWeight: "900", color: text },
 
-  addPhotosBtn: {
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: "#EEF2FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 6,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.08)",
-  },
-  addPhotosText: { fontSize: 18, fontWeight: "900", color: "#1D4ED8" },
+    placeholder: { color: muted },
 
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginBottom: 18,
-  },
-  tile: {
-    width: "31%",
-    minWidth: 110,
-    borderRadius: 14,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.10)",
-    backgroundColor: "#f3f4f6",
-  },
-  tileImg: { width: "100%", height: 120, backgroundColor: "#e5e7eb" },
+    input: {
+      height: 52,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: border,
+      paddingHorizontal: 14,
+      fontSize: 16,
+      fontWeight: "700",
+      color: text,
+      marginBottom: 14,
+      backgroundColor: card,
+    },
+    textArea: {
+      height: 120,
+      paddingTop: 14,
+      textAlignVertical: "top",
+    },
 
-  tileActions: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    padding: 8,
-    gap: 8,
-    backgroundColor: "#eef2f7",
-  },
-  actionBtn: {
-    flex: 1,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: "#111827",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionDisabled: { opacity: 0.35 },
-  actionDelete: { backgroundColor: "#7f1d1d" },
-  actionText: { color: "#fff", fontSize: 18, fontWeight: "900" },
+    addPhotosBtn: {
+      height: 56,
+      borderRadius: 16,
+      backgroundColor: card,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 6,
+      marginBottom: 14,
+      borderWidth: 1,
+      borderColor: border,
+    },
+    addPhotosText: { fontSize: 18, fontWeight: "900", color: primary },
 
-  primaryBtn: {
-    height: 58,
-    borderRadius: 16,
-    backgroundColor: "#0B69FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 6,
-  },
-  primaryText: { color: "#fff", fontWeight: "900", fontSize: 20 },
+    grid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 12,
+      marginBottom: 18,
+    },
+    tile: {
+      width: "31%",
+      minWidth: 110,
+      borderRadius: 14,
+      overflow: "hidden",
+      borderWidth: 1,
+      borderColor: border,
+      backgroundColor: card,
+    },
+    tileImg: { width: "100%", height: 120, backgroundColor: bg },
 
-  deleteBtn: {
-    height: 58,
-    borderRadius: 16,
-    backgroundColor: "#7f1d1d",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 12,
-  },
-  deleteText: { color: "#fff", fontWeight: "900", fontSize: 18 },
+    tileActions: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      padding: 8,
+      gap: 8,
+      backgroundColor: card,
+      borderTopWidth: 1,
+      borderTopColor: border,
+    },
+    actionBtn: {
+      flex: 1,
+      height: 38,
+      borderRadius: 12,
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    actionDisabled: { opacity: 0.35 },
+    actionDelete: { backgroundColor: danger },
+    actionText: { color: onPrimary, fontSize: 18, fontWeight: "900" },
 
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-  },
-  h1: { fontSize: 18, fontWeight: "900", color: "#111" },
-  muted: {
-    marginTop: 8,
-    color: "#6b7280",
-    fontWeight: "700",
-    textAlign: "center",
-  },
-});
+    primaryBtn: {
+      height: 58,
+      borderRadius: 16,
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 6,
+    },
+    onPrimary: { color: onPrimary },
+    primaryText: { color: onPrimary, fontWeight: "900", fontSize: 20 },
+
+    deleteBtn: {
+      height: 58,
+      borderRadius: 16,
+      backgroundColor: danger,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 12,
+    },
+    deleteText: { color: onPrimary, fontWeight: "900", fontSize: 18 },
+
+    center: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+    },
+    h1: { fontSize: 18, fontWeight: "900", color: text },
+    muted: {
+      marginTop: 8,
+      color: muted,
+      fontWeight: "700",
+      textAlign: "center",
+    },
+  });
+}

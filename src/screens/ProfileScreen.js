@@ -1,5 +1,22 @@
 // src/screens/ProfileScreen.js
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+/**
+ * SCHIMBĂRI (pe scurt):
+ * 1) FIX navigare către ThemeSettings: route-ul este în Tab.Navigator, nu în MobileRootStack.
+ *    => folosim navigation.navigate("TabsRoot", { screen: ROUTES.ThemeSettings })
+ * 2) Am aplicat aceeași logică și pentru MyItems + Favorites (aceeași cauză de eroare).
+ * 3) Restul UI/logică rămân identice.
+ */
+
+// Profil (mobile) – theme-aware complet (Light/Dark/Auto) folosind tokens.
+// Fix: fundalul nu mai rămâne alb, toate cardurile/texte/butoane folosesc tokens.
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useContext,
+} from "react";
 import {
   View,
   Text,
@@ -13,9 +30,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import { fetchMyItems, fetchMyFavoriteItems } from "../services/itemsService";
+import { ThemeContext } from "../theme/ThemeProvider";
+
+function pickTok(tokens, key, fallback) {
+  const v = tokens?.[key];
+  return v !== undefined && v !== null ? v : fallback;
+}
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const { tokens, scheme } = useContext(ThemeContext);
+
+  const S = useMemo(() => makeStyles(tokens), [tokens]);
 
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -97,29 +123,21 @@ export default function ProfileScreen({ navigation }) {
     return true;
   }, [authReady, user]);
 
-  const navigateToRootStack = useCallback(
-    (routeName) => {
-      const parent = navigation.getParent?.();
-      if (parent?.navigate) parent.navigate(routeName);
-      else navigation.navigate(routeName);
-    },
-    [navigation],
-  );
-
+  // ✅ FIX: MyItems/Favorites/ThemeSettings sunt în Tab.Navigator (MobileTabs),
+  // deci navigăm prin route-ul Stack: "TabsRoot" și specificăm screen-ul din tabs.
   const goMyItems = useCallback(() => {
     if (!ensureLogged()) return;
-    navigateToRootStack(ROUTES.MyItems);
-  }, [ensureLogged, navigateToRootStack]);
+    navigation.navigate("TabsRoot", { screen: ROUTES.MyItems });
+  }, [ensureLogged, navigation]);
 
   const goFavorites = useCallback(() => {
     if (!ensureLogged()) return;
-    navigateToRootStack(ROUTES.Favorites);
-  }, [ensureLogged, navigateToRootStack]);
+    navigation.navigate("TabsRoot", { screen: ROUTES.Favorites });
+  }, [ensureLogged, navigation]);
 
   const goThemeSettings = useCallback(() => {
-    if (!ensureLogged()) return;
-    navigateToRootStack(ROUTES.ThemeSettings);
-  }, [ensureLogged, navigateToRootStack]);
+    navigation.navigate("TabsRoot", { screen: ROUTES.ThemeSettings });
+  }, [navigation]);
 
   const onLogout = useCallback(async () => {
     try {
@@ -138,194 +156,226 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <ScrollView
-      style={styles.screen}
-      contentContainerStyle={{
-        paddingTop: Math.max(insets.top, 12),
-        paddingBottom: Math.max(insets.bottom, 18),
-      }}
+      style={S.screen} // ✅ bg pe tot ecranul
+      contentContainerStyle={[
+        S.content,
+        {
+          paddingTop: Math.max(insets.top, 12),
+          paddingBottom: Math.max(insets.bottom, 18) + 10,
+        },
+      ]}
+      showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.title}>Profil</Text>
+      <Text style={S.title}>Profil</Text>
 
-      <View style={styles.profileCard}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
+      <View style={S.profileCard}>
+        <View style={S.avatar}>
+          <Text style={S.avatarText}>
             {displayName?.slice(0, 2).toUpperCase()}
           </Text>
         </View>
 
         <View style={{ flex: 1 }}>
-          <Text style={styles.name}>{displayName}</Text>
-          <Text style={styles.email}>{email || "Nu ești logat"}</Text>
+          <Text style={S.name}>{displayName}</Text>
+          <Text style={S.email}>{email || "Nu ești logat"}</Text>
         </View>
 
         <TouchableOpacity
-          style={styles.sellBtn}
+          style={S.sellBtn}
           activeOpacity={0.9}
           onPress={goSell}
         >
-          <Text style={styles.sellBtnText}>Vinde</Text>
+          <Text style={S.sellBtnText}>Vinde</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.statsRow}>
+      <View style={S.statsRow}>
         <TouchableOpacity
-          style={styles.statCard}
+          style={S.statCard}
           activeOpacity={0.9}
           onPress={goMyItems}
         >
-          <Text style={styles.statNum}>{countsTextMyItems}</Text>
-          <Text style={styles.statLabel}>Anunțurile mele</Text>
+          <Text style={S.statNum}>{countsTextMyItems}</Text>
+          <Text style={S.statLabel}>Anunțurile mele</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.statCard}
+          style={S.statCard}
           activeOpacity={0.9}
           onPress={goFavorites}
         >
-          <Text style={styles.statNum}>{countsTextFavs}</Text>
-          <Text style={styles.statLabel}>Favorite</Text>
+          <Text style={S.statNum}>{countsTextFavs}</Text>
+          <Text style={S.statLabel}>Favorite</Text>
         </TouchableOpacity>
 
-        <View style={styles.statCard}>
-          <Text style={styles.statNum}>0</Text>
-          <Text style={styles.statLabel}>Vânzări</Text>
+        <View style={S.statCard}>
+          <Text style={S.statNum}>0</Text>
+          <Text style={S.statLabel}>Vânzări</Text>
         </View>
       </View>
 
-      <View style={styles.menuCard}>
+      <View style={S.menuCard}>
         <TouchableOpacity
-          style={styles.menuRow}
-          onPress={() => navigateToRootStack(ROUTES.ThemeSettings)}
+          style={S.menuRow}
+          onPress={goMyItems}
+          activeOpacity={0.9}
         >
-          <Text style={styles.menuText}>🧾 Anunțurile mele</Text>
-          <Text style={styles.menuArrow}>›</Text>
+          <Text style={S.menuText}>🧾 Anunțurile mele</Text>
+          <Text style={S.menuArrow}>›</Text>
         </TouchableOpacity>
 
-        <View style={styles.menuDivider} />
+        <View style={S.menuDivider} />
 
-        <TouchableOpacity style={styles.menuRow} onPress={goFavorites}>
-          <Text style={styles.menuText}>♡ Favorite</Text>
-          <Text style={styles.menuArrow}>›</Text>
+        <TouchableOpacity
+          style={S.menuRow}
+          onPress={goFavorites}
+          activeOpacity={0.9}
+        >
+          <Text style={S.menuText}>♡ Favorite</Text>
+          <Text style={S.menuArrow}>›</Text>
         </TouchableOpacity>
 
-        <View style={styles.menuDivider} />
+        <View style={S.menuDivider} />
 
-        {/* ✅ FIX: Setări -> ThemeSettings */}
-        <TouchableOpacity style={styles.menuRow} onPress={goThemeSettings}>
-          <Text style={styles.menuText}>⚙️ Setări</Text>
-          <Text style={styles.menuArrow}>›</Text>
+        <TouchableOpacity
+          style={S.menuRow}
+          onPress={goThemeSettings}
+          activeOpacity={0.9}
+        >
+          <Text style={S.menuText}>⚙️ Setări</Text>
+          <Text style={S.menuArrow}>›</Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity
-        style={styles.logoutBtn}
+        style={S.logoutBtn}
         activeOpacity={0.9}
         onPress={onLogout}
       >
-        <Text style={styles.logoutText}>Logout</Text>
+        <Text style={S.logoutText}>Logout</Text>
       </TouchableOpacity>
-
-      <Text style={styles.note}>
-        Profil – acum „Anunțurile mele” și „Favorite” sunt reale.
-      </Text>
 
       {loadingCounts && authReady && user ? (
         <View style={{ marginTop: 10, alignItems: "center" }}>
           <ActivityIndicator />
         </View>
       ) : null}
+
+      {/* mic debug discret, poți șterge */}
+      {/* <Text style={{ marginTop: 10, textAlign: "center", color: S.mutedText.color }}>
+        Theme: {scheme}
+      </Text> */}
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#F3F4F6", paddingHorizontal: 16 },
-  title: {
-    fontSize: 22,
-    fontWeight: "900",
-    textAlign: "center",
-    marginBottom: 12,
-    color: "#111827",
-  },
+function makeStyles(tokens) {
+  const bg = pickTok(tokens, "bg", "#0B1220");
+  const card = pickTok(tokens, "card", "#111A2E");
+  const text = pickTok(tokens, "text", "#E5E7EB");
+  const muted = pickTok(tokens, "muted", pickTok(tokens, "subtext", "#9CA3AF"));
+  const border = pickTok(tokens, "border", "rgba(255,255,255,0.10)");
+  const divider = pickTok(tokens, "divider", "rgba(255,255,255,0.08)");
 
-  profileCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 14,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.06)",
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#2563EB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: { color: "#fff", fontWeight: "900" },
-  name: { fontSize: 18, fontWeight: "900", color: "#111827" },
-  email: { marginTop: 2, color: "#6B7280", fontWeight: "700" },
+  const primary = pickTok(
+    tokens,
+    "primary",
+    pickTok(tokens, "accent", "#60A5FA"),
+  );
+  const primarySoft = pickTok(tokens, "primarySoft", "rgba(96,165,250,0.18)");
+  const danger = pickTok(tokens, "danger", "#F87171");
+  const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
 
-  sellBtn: {
-    paddingHorizontal: 14,
-    height: 34,
-    borderRadius: 12,
-    backgroundColor: "#E5EEFf",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sellBtnText: { color: "#2563EB", fontWeight: "900" },
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: bg },
+    content: { flexGrow: 1, paddingHorizontal: 16, backgroundColor: bg },
 
-  statsRow: { flexDirection: "row", gap: 10, marginTop: 12 },
-  statCard: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.06)",
-  },
-  statNum: { fontSize: 22, fontWeight: "900", color: "#111827" },
-  statLabel: { marginTop: 6, color: "#6B7280", fontWeight: "800" },
+    title: {
+      fontSize: 22,
+      fontWeight: "900",
+      textAlign: "center",
+      marginBottom: 12,
+      color: text,
+    },
 
-  menuCard: {
-    marginTop: 12,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.06)",
-    overflow: "hidden",
-  },
-  menuRow: {
-    height: 54,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  menuText: { fontSize: 16, fontWeight: "900", color: "#111827" },
-  menuArrow: { fontSize: 22, fontWeight: "900", color: "#9CA3AF" },
-  menuDivider: { height: 1, backgroundColor: "rgba(0,0,0,0.06)" },
+    profileCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: card,
+      borderRadius: 16,
+      padding: 14,
+      gap: 12,
+      borderWidth: 1,
+      borderColor: border,
+    },
 
-  logoutBtn: {
-    marginTop: 14,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: "#EF4444",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoutText: { color: "#fff", fontWeight: "900", fontSize: 18 },
+    avatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    avatarText: { color: onPrimary, fontWeight: "900" },
 
-  note: {
-    marginTop: 10,
-    color: "#6B7280",
-    textAlign: "center",
-    fontWeight: "700",
-  },
-});
+    name: { fontSize: 18, fontWeight: "900", color: text },
+    email: { marginTop: 2, color: muted, fontWeight: "700" },
+
+    sellBtn: {
+      paddingHorizontal: 14,
+      height: 34,
+      borderRadius: 12,
+      backgroundColor: primarySoft,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: border,
+    },
+    sellBtnText: { color: primary, fontWeight: "900" },
+
+    statsRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+    statCard: {
+      flex: 1,
+      backgroundColor: card,
+      borderRadius: 16,
+      paddingVertical: 14,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: border,
+    },
+    statNum: { fontSize: 22, fontWeight: "900", color: text },
+    statLabel: { marginTop: 6, color: muted, fontWeight: "800" },
+
+    menuCard: {
+      marginTop: 12,
+      backgroundColor: card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: border,
+      overflow: "hidden",
+    },
+    menuRow: {
+      height: 54,
+      paddingHorizontal: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    menuText: { fontSize: 16, fontWeight: "900", color: text },
+    menuArrow: { fontSize: 22, fontWeight: "900", color: muted },
+    menuDivider: { height: 1, backgroundColor: divider },
+
+    logoutBtn: {
+      marginTop: 14,
+      height: 56,
+      borderRadius: 16,
+      backgroundColor: danger,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    logoutText: { color: onPrimary, fontWeight: "900", fontSize: 18 },
+
+    mutedText: { color: muted },
+  });
+}

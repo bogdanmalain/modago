@@ -1,20 +1,35 @@
 // src/screens/RegisterScreen.js
-import React, { useCallback, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useRef,
+  useState,
+  useContext,
+  useEffect,
+  useMemo,
+} from "react";
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
   Alert,
   Platform,
+  KeyboardAvoidingView,
+  ScrollView,
+  Keyboard,
+  TouchableOpacity,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
+import { ThemeContext } from "../theme/ThemeProvider";
+import AppButton from "../components/AppButton";
 
 export default function RegisterScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
+  const { tokens } = useContext(ThemeContext);
+
   const passRef = useRef(null);
   const pass2Ref = useRef(null);
 
@@ -29,6 +44,23 @@ export default function RegisterScreen({ navigation }) {
 
   const [existingAccount, setExistingAccount] = useState(false);
   const [infoMsg, setInfoMsg] = useState("");
+
+  const [kbOpen, setKbOpen] = useState(false);
+
+  useEffect(() => {
+    const showEvt =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const s1 = Keyboard.addListener(showEvt, () => setKbOpen(true));
+    const s2 = Keyboard.addListener(hideEvt, () => setKbOpen(false));
+
+    return () => {
+      s1?.remove?.();
+      s2?.remove?.();
+    };
+  }, []);
 
   const notify = useCallback((title, message) => {
     if (Platform.OS === "web") {
@@ -57,8 +89,6 @@ export default function RegisterScreen({ navigation }) {
   }, [navigation, email]);
 
   const goForgot = useCallback(() => {
-    // ⚠️ Dacă nu ai ruta ForgotPassword definită în routes + AppNavigator,
-    // asta va da "NAVIGATE not handled".
     navigation.navigate(ROUTES.ForgotPassword, {
       email: String(email || "").trim(),
     });
@@ -108,9 +138,6 @@ export default function RegisterScreen({ navigation }) {
         return;
       }
 
-      // ⚠️ Dacă nu ai ruta VerifyEmail definită în routes + AppNavigator,
-      // asta va da "NAVIGATE not handled".
-      // după signUp reușit
       navigation.replace(ROUTES.Login, { email: e });
     } catch (err) {
       notify("Eroare", err?.message || "A apărut o eroare la înregistrare.");
@@ -122,209 +149,230 @@ export default function RegisterScreen({ navigation }) {
   const eye1 = showPass1 ? "👁 Vezi" : "🙈";
   const eye2 = showPass2 ? "👁 Vezi" : "🙈";
 
+  const styles = useMemo(
+    () => makeStyles(tokens, insets, kbOpen),
+    [tokens, insets, kbOpen],
+  );
+
   return (
-    <View style={styles.page}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Creează cont</Text>
+    <KeyboardAvoidingView
+      style={styles.page}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.cardWrap}>
+          <View style={styles.card}>
+            <Text style={styles.title}>Creează cont</Text>
 
-        {!!infoMsg && (
-          <View style={styles.infoBox}>
-            <Text style={styles.infoText}>{infoMsg}</Text>
+            {!!infoMsg && (
+              <View style={styles.infoBox}>
+                <Text style={styles.infoText}>{infoMsg}</Text>
+              </View>
+            )}
+
+            <TextInput
+              value={email}
+              onChangeText={(t) => {
+                setEmail(t);
+                if (existingAccount) {
+                  setExistingAccount(false);
+                  setInfoMsg("");
+                }
+              }}
+              placeholder="Email"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              style={styles.input}
+              placeholderTextColor={tokens.subtext}
+              editable={!loading}
+              returnKeyType="next"
+              blurOnSubmit={false}
+              onSubmitEditing={() => passRef.current?.focus?.()}
+            />
+
+            <View style={styles.passRow}>
+              <TextInput
+                ref={passRef}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Parolă"
+                secureTextEntry={!showPass1}
+                style={[styles.input, styles.passInput]}
+                placeholderTextColor={tokens.subtext}
+                editable={!loading}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => pass2Ref.current?.focus?.()}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPass1((v) => !v)}
+                style={styles.eyeBtn}
+                activeOpacity={0.8}
+                disabled={loading}
+              >
+                <Text style={styles.eyeText}>{eye1}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.passRow}>
+              <TextInput
+                ref={pass2Ref}
+                value={password2}
+                onChangeText={setPassword2}
+                placeholder="Repetă parola"
+                secureTextEntry={!showPass2}
+                style={[styles.input, styles.passInput]}
+                placeholderTextColor={tokens.subtext}
+                editable={!loading}
+                returnKeyType="done"
+                onSubmitEditing={onRegister}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPass2((v) => !v)}
+                style={styles.eyeBtn}
+                activeOpacity={0.8}
+                disabled={loading}
+              >
+                <Text style={styles.eyeText}>{eye2}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <AppButton
+              title="Înregistrare"
+              onPress={onRegister}
+              loading={loading}
+              disabled={loading}
+              variant="primary"
+              height={52}
+              radius={14}
+              style={{ marginTop: 14 }}
+            />
+
+            {existingAccount && (
+              <AppButton
+                title="Ai uitat parola?"
+                onPress={goForgot}
+                disabled={loading}
+                variant="outline"
+                height={52}
+                radius={14}
+                style={{ marginTop: 12 }}
+              />
+            )}
+
+            <AppButton
+              title="Ai deja cont? Autentifică-te"
+              onPress={goLogin}
+              disabled={loading}
+              variant="ghost"
+              height={40}
+              radius={14}
+              style={{ marginTop: 14, alignSelf: "center" }}
+              textStyle={{ fontSize: 15 }}
+            />
           </View>
-        )}
-
-        <TextInput
-          value={email}
-          onChangeText={(t) => {
-            setEmail(t);
-            if (existingAccount) {
-              setExistingAccount(false);
-              setInfoMsg("");
-            }
-          }}
-          placeholder="Email"
-          autoCapitalize="none"
-          keyboardType="email-address"
-          style={styles.input}
-          placeholderTextColor="#9aa4b2"
-          editable={!loading}
-          returnKeyType="next"
-          blurOnSubmit={false}
-          onSubmitEditing={() => passRef.current?.focus?.()}
-        />
-
-        <View style={styles.passRow}>
-          <TextInput
-            ref={passRef}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Parolă"
-            secureTextEntry={!showPass1}
-            style={[styles.input, styles.passInput]}
-            placeholderTextColor="#9aa4b2"
-            editable={!loading}
-            returnKeyType="next"
-            blurOnSubmit={false}
-            onSubmitEditing={() => pass2Ref.current?.focus?.()}
-          />
-          <TouchableOpacity
-            onPress={() => setShowPass1((v) => !v)}
-            style={styles.eyeBtn}
-            activeOpacity={0.8}
-            disabled={loading}
-          >
-            <Text style={styles.eyeText}>{eye1}</Text>
-          </TouchableOpacity>
         </View>
-
-        <View style={styles.passRow}>
-          <TextInput
-            ref={pass2Ref}
-            value={password2}
-            onChangeText={setPassword2}
-            placeholder="Repetă parola"
-            secureTextEntry={!showPass2}
-            style={[styles.input, styles.passInput]}
-            placeholderTextColor="#9aa4b2"
-            editable={!loading}
-            returnKeyType="done"
-            onSubmitEditing={onRegister}
-          />
-          <TouchableOpacity
-            onPress={() => setShowPass2((v) => !v)}
-            style={styles.eyeBtn}
-            activeOpacity={0.8}
-            disabled={loading}
-          >
-            <Text style={styles.eyeText}>{eye2}</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={styles.primaryBtn}
-          onPress={onRegister}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.primaryText}>Înregistrare</Text>
-          )}
-        </TouchableOpacity>
-
-        {existingAccount && (
-          <TouchableOpacity
-            activeOpacity={0.9}
-            style={styles.secondaryBtn}
-            onPress={goForgot}
-            disabled={loading}
-          >
-            <Text style={styles.secondaryText}>Ai uitat parola?</Text>
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={styles.linkBtn}
-          onPress={goLogin}
-          disabled={loading}
-        >
-          <Text style={styles.linkText}>Ai deja cont? Autentifică-te</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-    backgroundColor: "#f5f7fb",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  card: {
-    width: "100%",
-    maxWidth: 520,
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 22,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 2,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "900",
-    color: "#111",
-    marginBottom: 10,
-    textAlign: "center",
-  },
+function makeStyles(tokens, insets, kbOpen) {
+  const cardBg =
+    tokens?.scheme === "dark"
+      ? "rgba(19, 28, 46, 0.55)"
+      : "rgba(255, 255, 255, 0.85)";
 
-  infoBox: {
-    backgroundColor: "#fff7ed",
-    borderColor: "#fdba74",
-    borderWidth: 1,
-    padding: 10,
-    borderRadius: 12,
-    marginTop: 6,
-    marginBottom: 6,
-  },
-  infoText: { color: "#9a3412", fontWeight: "900", textAlign: "center" },
+  const border = tokens?.border ?? "rgba(255,255,255,0.10)";
+  const bottomGapWhenKeyboard = 10;
 
-  input: {
-    borderWidth: 1,
-    borderColor: "#e6eaf2",
-    backgroundColor: "#f8fafc",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: "#111",
-    marginTop: 10,
-  },
+  return StyleSheet.create({
+    page: {
+      flex: 1,
+      backgroundColor: tokens.bg,
+    },
 
-  passRow: { position: "relative", marginTop: 10 },
-  passInput: { marginTop: 0, paddingRight: 110 },
-  eyeBtn: {
-    position: "absolute",
-    right: 12,
-    top: 0,
-    height: 48,
-    justifyContent: "center",
-  },
-  eyeText: {
-    fontWeight: "900",
-    color: "#111",
-    fontFamily: Platform.OS === "web" ? "system-ui" : undefined,
-  },
+    scrollContent: {
+      flexGrow: 1,
+      paddingTop: Math.max(insets.top, 16) + 18,
+      paddingHorizontal: 20,
+      justifyContent: kbOpen ? "flex-end" : "center",
+      paddingBottom: kbOpen
+        ? Math.max(insets.bottom, 8) + bottomGapWhenKeyboard
+        : Math.max(insets.bottom, 16) + 22,
+    },
 
-  primaryBtn: {
-    marginTop: 14,
-    backgroundColor: "#0B69FF",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryText: { color: "#fff", fontWeight: "900", fontSize: 16 },
+    cardWrap: {
+      width: "100%",
+    },
 
-  secondaryBtn: {
-    marginTop: 12,
-    backgroundColor: "#eef2ff",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#dbe3ff",
-  },
-  secondaryText: { color: "#2b4cff", fontWeight: "900", fontSize: 15 },
+    card: {
+      width: "100%",
+      maxWidth: 520,
+      alignSelf: "center",
+      backgroundColor: cardBg,
+      borderRadius: 22,
+      padding: 22,
+      borderWidth: 1,
+      borderColor: border,
 
-  linkBtn: { marginTop: 14, alignItems: "center" },
-  linkText: { color: "#0B69FF", fontWeight: "900" },
-});
+      shadowColor: tokens.shadowColor || "#000",
+      shadowOpacity: 0.25,
+      shadowRadius: 22,
+      shadowOffset: { width: 0, height: 14 },
+      elevation: 3,
+    },
+
+    title: {
+      fontSize: 30,
+      fontWeight: "900",
+      color: tokens.text,
+      marginBottom: 10,
+      textAlign: "center",
+    },
+
+    infoBox: {
+      backgroundColor: "rgba(253, 186, 116, 0.14)",
+      borderColor: "rgba(253, 186, 116, 0.55)",
+      borderWidth: 1,
+      padding: 10,
+      borderRadius: 14,
+      marginTop: 6,
+      marginBottom: 6,
+    },
+    infoText: { color: tokens.text, fontWeight: "900", textAlign: "center" },
+
+    input: {
+      borderWidth: 1,
+      borderColor: border,
+      backgroundColor: "rgba(0,0,0,0.10)",
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 16,
+      color: tokens.text,
+      marginTop: 10,
+    },
+
+    passRow: { position: "relative", marginTop: 10 },
+    passInput: { marginTop: 0, paddingRight: 110 },
+
+    eyeBtn: {
+      position: "absolute",
+      right: 12,
+      top: 0,
+      height: 48,
+      justifyContent: "center",
+    },
+    eyeText: {
+      fontWeight: "900",
+      color: tokens.text,
+      fontFamily: Platform.OS === "web" ? "system-ui" : undefined,
+    },
+  });
+}

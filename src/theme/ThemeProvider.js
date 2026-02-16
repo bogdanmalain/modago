@@ -1,12 +1,6 @@
-// ==============================
 // src/theme/ThemeProvider.js
-// ==============================
-// Provider global pentru tema aplicației:
-// - Salvează setările în AsyncStorage
-// - Mode: "auto" (după telefon) / "manual" (forțat)
-// - Expune: settings, scheme, tokens, setAuto, setManual, hydrateDone
-// - “Auto” stabil: Appearance.getColorScheme() + listener + refresh la foreground
-// - Protecții ca să nu crape dacă THEME e undefined/incomplet
+// Provider global pentru tema aplicației (Auto/Manual) + hydrate din AsyncStorage.
+// Fix: nu mai avem "flash" pe light — putem folosi hydrateDone în AppNavigator (ThemeGate).
 
 import React, {
   createContext,
@@ -15,32 +9,25 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { AppState, Appearance } from "react-native";
+import { AppState, Appearance, useColorScheme } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { THEME } from "./themeTokens";
 
-// ==============================
-// Storage + Defaults
-// ==============================
 const STORAGE_KEY = "modago_theme_v1";
 
-/**
- * settings:
- * - mode: "auto" | "manual"
- * - manualScheme: "light" | "dark"
- */
 const DEFAULT_SETTINGS = { mode: "auto", manualScheme: "light" };
 
-// ==============================
-// Fallback tokens (NU crapă niciodată)
-// ==============================
 const FALLBACK_TOKENS_LIGHT = {
   bg: "#f5f7fb",
   card: "#ffffff",
   text: "#0b1220",
   subtext: "#6b7280",
+  muted: "#6b7280",
   border: "rgba(0,0,0,0.08)",
+  primary: "#2563eb",
   accent: "#2563eb",
+  danger: "#ef4444",
+  shadowColor: "#000",
 };
 
 const FALLBACK_TOKENS_DARK = {
@@ -48,8 +35,12 @@ const FALLBACK_TOKENS_DARK = {
   card: "#131c2e",
   text: "#ffffff",
   subtext: "#9aa4b2",
+  muted: "#9aa4b2",
   border: "rgba(255,255,255,0.08)",
+  primary: "#4da3ff",
   accent: "#4da3ff",
+  danger: "#f87171",
+  shadowColor: "#000",
 };
 
 function normalizeScheme(s) {
@@ -62,9 +53,6 @@ function getSafeTokens(scheme) {
   return scheme === "dark" ? dark : light;
 }
 
-// ==============================
-// Context
-// ==============================
 export const ThemeContext = createContext({
   settings: DEFAULT_SETTINGS,
   scheme: "light",
@@ -72,49 +60,47 @@ export const ThemeContext = createContext({
   setAuto: () => {},
   setManual: (_scheme) => {},
   hydrateDone: false,
+  forceRefreshSystem: () => {},
+  debug: null,
 });
 
-// ==============================
-// Provider
-// ==============================
 export function ThemeProvider({ children }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [hydrateDone, setHydrateDone] = useState(false);
 
-  // ==============================
-  // 1) “Auto după telefon” – OS scheme stabil (Appearance)
-  // ==============================
-  const [osScheme, setOsScheme] = useState(() =>
-    normalizeScheme(Appearance.getColorScheme()),
-  );
+  const hookScheme = useColorScheme(); // "light" | "dark" | null
+
+  const readSystemScheme = useCallback(() => {
+    const appearance = Appearance.getColorScheme(); // "light" | "dark" | null
+    const best = hookScheme ?? appearance;
+    return normalizeScheme(best);
+  }, [hookScheme]);
+
+  const [osScheme, setOsScheme] = useState(() => readSystemScheme());
 
   useEffect(() => {
-    // Listener când schimbi tema din iOS/Android
+    setOsScheme(readSystemScheme());
+  }, [readSystemScheme]);
+
+  useEffect(() => {
     const sub = Appearance.addChangeListener(({ colorScheme }) => {
       setOsScheme(normalizeScheme(colorScheme));
-    });
-
-    return () => {
-      // compatibil RN vechi/noi
-      sub?.remove?.();
-    };
-  }, []);
-
-  // ==============================
-  // 2) Refresh când revii în app (uneori iOS nu notifică corect în background)
-  // ==============================
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        setOsScheme(normalizeScheme(Appearance.getColorScheme()));
-      }
     });
     return () => sub?.remove?.();
   }, []);
 
-  // ==============================
-  // 3) Hydrate din storage
-  // ==============================
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") setOsScheme(readSystemScheme());
+    });
+    return () => sub?.remove?.();
+  }, [readSystemScheme]);
+
+  const forceRefreshSystem = useCallback(() => {
+    setOsScheme(readSystemScheme());
+  }, [readSystemScheme]);
+
+  // Hydrate
   useEffect(() => {
     let mounted = true;
 
@@ -132,7 +118,7 @@ export function ThemeProvider({ children }) {
           setSettings(safe);
         }
       } catch (e) {
-        // ignore – rămânem pe defaults
+        // ignore
       } finally {
         if (mounted) setHydrateDone(true);
       }
@@ -143,9 +129,6 @@ export function ThemeProvider({ children }) {
     };
   }, []);
 
-  // ==============================
-  // 4) Persist helper
-  // ==============================
   const persist = useCallback(async (next) => {
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -154,9 +137,6 @@ export function ThemeProvider({ children }) {
     }
   }, []);
 
-  // ==============================
-  // 5) Setters
-  // ==============================
   const setAuto = useCallback(() => {
     setSettings((prev) => {
       const next = { ...prev, mode: "auto" };
@@ -177,15 +157,22 @@ export function ThemeProvider({ children }) {
     [persist],
   );
 
-  // ==============================
-  // 6) Scheme + Tokens
-  // ==============================
   const scheme = settings.mode === "auto" ? osScheme : settings.manualScheme;
   const tokens = useMemo(() => getSafeTokens(scheme), [scheme]);
 
-  // ==============================
-  // 7) Context value
-  // ==============================
+  const debug = useMemo(() => {
+    if (!__DEV__) return null;
+    return {
+      hookScheme: hookScheme ?? "null",
+      appearanceScheme: Appearance.getColorScheme() ?? "null",
+      osScheme,
+      mode: settings?.mode,
+      manualScheme: settings?.manualScheme,
+      appliedScheme: scheme,
+      hydrateDone,
+    };
+  }, [hookScheme, osScheme, settings, scheme, hydrateDone]);
+
   const value = useMemo(
     () => ({
       settings,
@@ -194,8 +181,19 @@ export function ThemeProvider({ children }) {
       setAuto,
       setManual,
       hydrateDone,
+      forceRefreshSystem,
+      debug,
     }),
-    [settings, scheme, tokens, setAuto, setManual, hydrateDone],
+    [
+      settings,
+      scheme,
+      tokens,
+      setAuto,
+      setManual,
+      hydrateDone,
+      forceRefreshSystem,
+      debug,
+    ],
   );
 
   return (

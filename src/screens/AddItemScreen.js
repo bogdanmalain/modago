@@ -1,5 +1,20 @@
 // src/screens/AddItemScreen.js
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+// Ecran: Adaugă produs. Theme-aware (Light/Dark/Auto) folosind tokens.
+// Fix: fundal complet (nu rămâne alb sus), padding corect cu safe-area.
+// FIX: MOBILE images normalize -> max 1600px long side + real JPEG
+// ============================================
+// MODIFICARE (ACUM):
+// - După publicare: trimitem către Home createdItem (sau fallback createdItemId)
+//   ca Home să insereze local anunțul nou (fără logout/login, fără refetch la focus în mod normal)
+// ============================================
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useContext,
+} from "react";
 import {
   View,
   Text,
@@ -15,13 +30,24 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImageManipulator from "expo-image-manipulator";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../supabaseClient";
 import { createItem } from "../services/itemsService";
 import { ROUTES } from "../navigation/routes";
+import { ThemeContext } from "../theme/ThemeProvider";
 
 const STORAGE_BUCKET = "items";
 const MAX_IMAGES = 6;
+
+// ✅ standard: max long side
+const MAX_LONG_SIDE = 1600;
+const JPEG_QUALITY = 0.85;
+
+function pickTok(tokens, key, fallback) {
+  const v = tokens?.[key];
+  return v !== undefined && v !== null ? v : fallback;
+}
 
 function makeFilePath(userId) {
   const rand = Math.random().toString(36).slice(2);
@@ -38,29 +64,45 @@ function base64ToUint8Array(base64) {
 }
 
 /**
- * ✅ CHEIA:
- * Pe MOBILE convertim MEREU în JPEG real.
- * Așa eliminăm complet problema: URI fără extensie / HEIC mascat / etc.
+ * ✅ MOBILE: resize la max 1600px pe latura mare + JPEG real
+ * - dacă nu avem dimensiuni, folosim resize doar pe width (Expo păstrează aspect)
  */
-async function normalizeToJpegMobile(uri) {
-  const result = await ImageManipulator.manipulateAsync(uri, [], {
-    compress: 0.85,
+async function normalizeToJpegMobile(uri, meta) {
+  const w = Number(meta?.width) || null;
+  const h = Number(meta?.height) || null;
+
+  let actions = [];
+
+  // resize doar dacă e mai mare decât 1600 pe latura mare (nu upscalăm)
+  if (w && h) {
+    const longSide = Math.max(w, h);
+    if (longSide > MAX_LONG_SIDE) {
+      if (w >= h) actions.push({ resize: { width: MAX_LONG_SIDE } });
+      else actions.push({ resize: { height: MAX_LONG_SIDE } });
+    }
+  } else {
+    // fallback: încearcă să limitezi width
+    actions.push({ resize: { width: MAX_LONG_SIDE } });
+  }
+
+  const result = await ImageManipulator.manipulateAsync(uri, actions, {
+    compress: JPEG_QUALITY,
     format: ImageManipulator.SaveFormat.JPEG,
   });
 
   if (!result?.uri) {
-    throw new Error("Nu am putut converti poza în JPEG.");
+    throw new Error("Nu am putut normaliza poza (JPEG/resize).");
   }
   return result.uri;
 }
 
-async function uploadImageToSupabase({ uri, userId }) {
+async function uploadImageToSupabase({ uri, userId, meta }) {
   if (!uri) throw new Error("Lipsește uri pentru upload.");
   if (!userId) throw new Error("Lipsește userId pentru upload.");
 
   const path = makeFilePath(userId);
 
-  // ✅ WEB: blob direct (ok)
+  // ✅ WEB: blob direct
   if (Platform.OS === "web") {
     const res = await fetch(uri);
     if (!res.ok) throw new Error("Nu pot citi poza (fetch a eșuat).");
@@ -78,8 +120,8 @@ async function uploadImageToSupabase({ uri, userId }) {
     return publicUrl;
   }
 
-  // ✅ MOBILE: convertim întotdeauna la JPEG real
-  const jpegUri = await normalizeToJpegMobile(uri);
+  // ✅ MOBILE: resize + JPEG real
+  const jpegUri = await normalizeToJpegMobile(uri, meta);
 
   const info = await FileSystem.getInfoAsync(jpegUri);
   if (!info?.exists) throw new Error("Fișierul JPEG nu există pe device.");
@@ -104,12 +146,17 @@ async function uploadImageToSupabase({ uri, userId }) {
 }
 
 export default function AddItemScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
+  const { tokens } = useContext(ThemeContext);
+  const S = useMemo(() => makeStyles(tokens), [tokens]);
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [category, setCategory] = useState("");
 
-  const [localImages, setLocalImages] = useState([]); // [{ uri }]
+  // ✅ păstrăm și width/height dacă vine din picker (ajută la resize corect)
+  const [localImages, setLocalImages] = useState([]); // [{ uri, width?, height? }]
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -145,7 +192,13 @@ export default function AddItemScreen({ navigation }) {
       if (result.canceled) return;
 
       const assets = Array.isArray(result.assets) ? result.assets : [];
-      const next = assets.map((a) => ({ uri: a?.uri })).filter((x) => !!x.uri);
+      const next = assets
+        .map((a) => ({
+          uri: a?.uri,
+          width: a?.width,
+          height: a?.height,
+        }))
+        .filter((x) => !!x.uri);
 
       setLocalImages((prev) => [...prev, ...next].slice(0, MAX_IMAGES));
     } catch (e) {
@@ -192,7 +245,11 @@ export default function AddItemScreen({ navigation }) {
       // 1) upload poze -> publicUrls
       const urls = [];
       for (const img of localImages) {
-        const url = await uploadImageToSupabase({ uri: img.uri, userId });
+        const url = await uploadImageToSupabase({
+          uri: img.uri,
+          userId,
+          meta: img,
+        });
         urls.push(url);
       }
 
@@ -206,16 +263,34 @@ export default function AddItemScreen({ navigation }) {
         user_id: userId,
       };
 
-      await createItem(payload);
+      // IMPORTANT:
+      // createItem ar trebui ideal să returneze row-ul creat.
+      // Noi tratăm ambele cazuri: returnează item / nu returnează nimic.
+      const created = await createItem(payload);
 
       Alert.alert("Publicat", "Produsul a fost publicat cu succes.");
+
+      // reset UI
       setTitle("");
       setDescription("");
       setPrice("");
       setCategory("");
       setLocalImages([]);
 
-      navigation.navigate(ROUTES.Home);
+      // ✅ Trimite către Home item-ul creat (ideal) ca să apară instant
+      // Dacă createItem nu întoarce item, trimitem fallback createdItemId (dacă există)
+      const createdRow =
+        created && typeof created === "object" ? created : null;
+      const createdId = createdRow?.id != null ? String(createdRow.id) : null;
+
+      if (createdRow?.id) {
+        navigation.navigate(ROUTES.Home, { createdItem: createdRow });
+      } else if (createdId) {
+        navigation.navigate(ROUTES.Home, { createdItemId: createdId });
+      } else {
+        // fallback final: măcar ne întoarcem în Home (și tu poți da refresh manual)
+        navigation.navigate(ROUTES.Home);
+      }
     } catch (e) {
       console.log("❌ publish error:", e);
       const msg = e?.message || "Eroare la publicare.";
@@ -227,145 +302,207 @@ export default function AddItemScreen({ navigation }) {
   }, [title, description, normalizedPrice, category, localImages, navigation]);
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      <Text style={styles.h1}>Adaugă un produs</Text>
+    <ScrollView
+      style={S.screen}
+      contentContainerStyle={[
+        S.page,
+        {
+          paddingTop: Math.max(insets.top, 12) + 16,
+          paddingBottom: Math.max(insets.bottom, 16) + 18,
+        },
+      ]}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={S.h1}>Adaugă un produs</Text>
 
       <TextInput
         value={title}
         onChangeText={setTitle}
         placeholder="Titlu"
-        style={styles.input}
+        placeholderTextColor={S.placeholder.color}
+        style={S.input}
       />
       <TextInput
         value={description}
         onChangeText={setDescription}
         placeholder="Descriere"
-        style={[styles.input, styles.textarea]}
+        placeholderTextColor={S.placeholder.color}
+        style={[S.input, S.textarea]}
         multiline
       />
       <TextInput
         value={price}
         onChangeText={setPrice}
         placeholder="Preț (ex: 120)"
-        style={styles.input}
+        placeholderTextColor={S.placeholder.color}
+        style={S.input}
         keyboardType="numeric"
       />
       <TextInput
         value={category}
         onChangeText={setCategory}
         placeholder="Categorie (ex: Femei)"
-        style={styles.input}
+        placeholderTextColor={S.placeholder.color}
+        style={S.input}
       />
 
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={pickImages}
-        style={styles.pickBtn}
+        style={S.pickBtn}
         disabled={loading}
       >
-        <Text style={styles.pickText}>
+        <Text style={S.pickText}>
           Alege imagini ({localImages.length}/{MAX_IMAGES})
         </Text>
       </TouchableOpacity>
 
       {localImages.length > 0 && (
-        <View style={styles.imagesRow}>
+        <View style={S.imagesRow}>
           {localImages.map((img, idx) => (
-            <View key={`${img.uri}-${idx}`} style={styles.thumbWrap}>
-              <Image source={{ uri: img.uri }} style={styles.thumb} />
+            <View key={`${img.uri}-${idx}`} style={S.thumbWrap}>
+              <Image source={{ uri: img.uri }} style={S.thumb} />
               <TouchableOpacity
                 onPress={() => removeImage(idx)}
-                style={styles.removeBtn}
+                style={S.removeBtn}
                 activeOpacity={0.85}
               >
-                <Text style={styles.removeText}>×</Text>
+                <Text style={S.removeText}>×</Text>
               </TouchableOpacity>
             </View>
           ))}
         </View>
       )}
 
-      {!!errorMsg && <Text style={styles.err}>{errorMsg}</Text>}
+      {!!errorMsg && <Text style={S.err}>{errorMsg}</Text>}
 
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={publish}
-        style={[styles.pubBtn, loading && { opacity: 0.7 }]}
+        style={[S.pubBtn, loading && { opacity: 0.7 }]}
         disabled={loading}
       >
         {loading ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color={S.onPrimary.color} />
         ) : (
-          <Text style={styles.pubText}>Publică produsul</Text>
+          <Text style={S.pubText}>Publică produsul</Text>
         )}
       </TouchableOpacity>
 
-      <View style={{ height: 30 }} />
+      <View style={{ height: 6 }} />
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  page: { padding: 16, paddingTop: 26, backgroundColor: "#fff" },
-  h1: {
-    fontSize: 28,
-    fontWeight: "900",
-    textAlign: "center",
-    marginBottom: 16,
-    color: "#111",
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.12)",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    backgroundColor: "#fff",
-    marginBottom: 12,
-  },
-  textarea: { minHeight: 110, textAlignVertical: "top" },
-  pickBtn: {
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: "#eef2ff",
-    borderWidth: 1,
-    borderColor: "#dbe3ff",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 6,
-  },
-  pickText: { fontWeight: "900", fontSize: 16, color: "#2b4cff" },
-  imagesRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
-  thumbWrap: {
-    width: 92,
-    height: 92,
-    borderRadius: 14,
-    overflow: "hidden",
-    position: "relative",
-    backgroundColor: "#eee",
-  },
-  thumb: { width: "100%", height: "100%" },
-  removeBtn: {
-    position: "absolute",
-    right: 6,
-    top: 6,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  removeText: { color: "#fff", fontSize: 18, fontWeight: "900", marginTop: -1 },
-  err: { marginTop: 10, color: "#ef4444", fontWeight: "900", fontSize: 14 },
-  pubBtn: {
-    marginTop: 14,
-    height: 56,
-    borderRadius: 14,
-    backgroundColor: "#0B69FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pubText: { color: "#fff", fontWeight: "900", fontSize: 18 },
-});
+function makeStyles(tokens) {
+  const bg = pickTok(tokens, "bg", "#F3F4F6");
+  const card = pickTok(tokens, "card", "#FFFFFF");
+  const text = pickTok(tokens, "text", "#111827");
+  const muted = pickTok(tokens, "muted", pickTok(tokens, "subtext", "#6B7280"));
+  const border = pickTok(tokens, "border", "rgba(0,0,0,0.12)");
+  const primary = pickTok(
+    tokens,
+    "primary",
+    pickTok(tokens, "accent", "#2563EB"),
+  );
+  const primarySoft = pickTok(tokens, "primarySoft", "rgba(37,99,235,0.10)");
+  const danger = pickTok(tokens, "danger", "#EF4444");
+  const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
+
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: bg },
+    page: { flexGrow: 1, paddingHorizontal: 16, backgroundColor: bg },
+
+    h1: {
+      fontSize: 28,
+      fontWeight: "900",
+      textAlign: "center",
+      marginBottom: 16,
+      color: text,
+    },
+
+    placeholder: { color: muted },
+
+    input: {
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 16,
+      fontWeight: "700",
+      backgroundColor: card,
+      color: text,
+      marginBottom: 12,
+    },
+
+    textarea: { minHeight: 110, textAlignVertical: "top" },
+
+    pickBtn: {
+      height: 52,
+      borderRadius: 14,
+      backgroundColor: primarySoft,
+      borderWidth: 1,
+      borderColor: border,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 6,
+    },
+
+    pickText: { fontWeight: "900", fontSize: 16, color: primary },
+
+    imagesRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 10,
+      marginTop: 12,
+    },
+
+    thumbWrap: {
+      width: 92,
+      height: 92,
+      borderRadius: 14,
+      overflow: "hidden",
+      position: "relative",
+      backgroundColor: "rgba(0,0,0,0.06)",
+      borderWidth: 1,
+      borderColor: border,
+    },
+
+    thumb: { width: "100%", height: "100%" },
+
+    removeBtn: {
+      position: "absolute",
+      right: 6,
+      top: 6,
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: "rgba(0,0,0,0.55)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    removeText: {
+      color: "#fff",
+      fontSize: 18,
+      fontWeight: "900",
+      marginTop: -1,
+    },
+
+    err: { marginTop: 10, color: danger, fontWeight: "900", fontSize: 14 },
+
+    pubBtn: {
+      marginTop: 14,
+      height: 56,
+      borderRadius: 14,
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    onPrimary: { color: onPrimary },
+    pubText: { color: onPrimary, fontWeight: "900", fontSize: 18 },
+  });
+}

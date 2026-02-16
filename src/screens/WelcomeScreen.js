@@ -1,161 +1,337 @@
-// src/screens/WelcomeScreen.js
-import React, { useMemo } from "react";
+/**
+ * ==========================================
+ * WELCOMESCREEN – AUTO SPACERS (EGAL SUS/JOS)
+ * ==========================================
+ * ✅ Fără marginTop “din ochi” (nu depinde de iPhone)
+ * ✅ Distanță egală: header->conținut == conținut->jos (dinamic)
+ * ✅ Păstrăm grid / logo / culori / ordine / cover exact ca acum
+ *
+ * Assets:
+ * - ../../assets/welcome/1.png ... 6.png
+ * - ../../assets/logo/modago-logo.png (dark)
+ * - ../../assets/logo/modago-logo-light.png (light)
+ */
+
+import React, { useMemo, useContext, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   Image,
+  TouchableOpacity,
   Platform,
-  useWindowDimensions,
+  Linking,
+  Alert,
+  Dimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
+
+import { ThemeContext } from "../theme/ThemeProvider";
+import AppButton from "../components/AppButton";
 
 export default function WelcomeScreen({ navigation }) {
-  const { width } = useWindowDimensions();
-  const isSmall = width < 380;
+  const insets = useSafeAreaInsets();
+  const { tokens } = useContext(ThemeContext);
 
-  const tiles = useMemo(
+  const images = useMemo(
     () => [
-      { id: "1", src: require("../../assets/welcome/1.jpg") },
-      { id: "2", src: require("../../assets/welcome/2.jpg") },
-      { id: "3", src: require("../../assets/welcome/3.jpg") },
-      { id: "4", src: require("../../assets/welcome/4.jpg") },
-      { id: "5", src: require("../../assets/welcome/5.jpg") },
-      { id: "6", src: require("../../assets/welcome/6.jpg") },
+      require("../../assets/welcome/1.png"),
+      require("../../assets/welcome/2.png"),
+      require("../../assets/welcome/3.png"),
+      require("../../assets/welcome/4.png"),
+      require("../../assets/welcome/5.png"),
+      require("../../assets/welcome/6.png"),
     ],
-    []
+    [],
   );
 
-  const col = 3;
-  const gap = 10;
-  const pad = 18;
-  const tileSize = Math.floor((width - pad * 2 - gap * (col - 1)) / col);
+  const go = useCallback(
+    (routeName) => {
+      if (!navigation?.navigate) return;
+      try {
+        navigation.navigate(routeName);
+      } catch (e) {
+        console.log("WelcomeScreen navigate error:", e);
+        Alert.alert("Navigație", `Nu pot naviga către: ${routeName}`);
+      }
+    },
+    [navigation],
+  );
+
+  const openAbout = useCallback(async () => {
+    const url = "https://modago.app";
+    try {
+      const ok = await Linking.canOpenURL(url);
+      if (!ok) return Alert.alert("Link", "Nu pot deschide link-ul.");
+      await Linking.openURL(url);
+    } catch (e) {
+      console.log("Linking error:", e);
+      Alert.alert("Link", "A apărut o eroare la deschiderea link-ului.");
+    }
+  }, []);
+
+  const onPressLanguage = useCallback(() => {
+    Alert.alert(
+      "Limbă",
+      "Selectorul de limbă îl facem după ce stabilizăm restul.",
+    );
+  }, []);
+
+  // --- sizing grid 3x2 ---
+  const { width } = Dimensions.get("window");
+
+  const H_PADDING = 10;
+  const GAP = 6;
+
+  const innerW = Math.max(0, width - H_PADDING * 2);
+  const rawCard = Math.floor((innerW - GAP * 2) / 3);
+  const CARD = Math.max(105, Math.min(rawCard, 150));
+
+  const bg = tokens?.bg ?? "#0b1320";
+  const text = tokens?.text ?? "#ffffff";
+  const subtext = tokens?.subtext ?? "#9aa4b2";
+  const border = tokens?.border ?? "rgba(255,255,255,0.10)";
+
+  // ✅ brand din tokens (oficial)
+  const BRAND = tokens?.primary ?? "#3fa9b5";
+
+  const isDark = tokens?.scheme === "dark";
+
+  const styles = useMemo(
+    () =>
+      makeStyles({
+        bg,
+        text,
+        subtext,
+        border,
+        insets,
+        CARD,
+        GAP,
+        BRAND,
+      }),
+    [bg, text, subtext, border, insets, CARD, GAP, BRAND],
+  );
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
-      {/* Top */}
-      <View style={styles.topRow}>
-        <View style={styles.langRow}>
-          <Text style={styles.globe}>🌐</Text>
-          <Text style={styles.langText}>Română</Text>
-          <Text style={styles.chev}>▾</Text>
-        </View>
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <View style={styles.page}>
+        {/* HEADER */}
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.headerSide}
+            onPress={onPressLanguage}
+          >
+            <Text style={styles.headerText}>🌐 Română</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => navigation.navigate("Home")}
-          style={styles.skipBtn}
-        >
-          <Text style={styles.skipText}>Omitere</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Grid */}
-      <View style={[styles.tilesWrap, { paddingHorizontal: pad }]}>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap }}>
-          {tiles.map((t) => (
-            <View
-              key={t.id}
-              style={[styles.tile, { width: tileSize, height: tileSize * 1.1 }]}
-            >
-              <Image source={t.src} style={styles.tileImg} />
+          <View style={styles.headerCenter}>
+            <View style={styles.logoWrap}>
+              <View style={styles.logoCrop} pointerEvents="none">
+                <Image
+                  source={
+                    isDark
+                      ? require("../../assets/logo/modago-logo.png")
+                      : require("../../assets/logo/modago-logo-light.png")
+                  }
+                  style={styles.logoImg}
+                />
+              </View>
             </View>
-          ))}
+          </View>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={[styles.headerSide, styles.headerSideRight]}
+            onPress={() => go("Home")}
+          >
+            <Text style={styles.headerText}>Omitere</Text>
+          </TouchableOpacity>
         </View>
-      </View>
 
-      {/* Text */}
-      <View style={styles.headlineWrap}>
-        <Text style={[styles.headline, isSmall && { fontSize: 30 }]}>
-          De la nou la vechi{"\n"}și iar la nou.
-        </Text>
-      </View>
+        {/* ✅ SPACER SUS (egalizare automată) */}
+        <View style={styles.spacerTop} />
 
-      {/* CTA */}
-      <View style={styles.btnWrap}>
-        <TouchableOpacity
-          onPress={() => navigation.navigate("Register")}
-          style={styles.primaryBtn}
-        >
-          <Text style={styles.primaryText}>Înregistrează-te pe ModaGo</Text>
-        </TouchableOpacity>
+        {/* CONTENT (grid + text + buttons) */}
+        <View style={styles.content}>
+          {/* GRID */}
+          <View style={styles.grid}>
+            {images.map((img, i) => (
+              <View key={i} style={styles.tile}>
+                <Image source={img} style={styles.tileImg} />
+              </View>
+            ))}
+          </View>
 
-        <TouchableOpacity
-          onPress={() => navigation.navigate("Login")}
-          style={styles.secondaryBtn}
-        >
-          <Text style={styles.secondaryText}>Am deja un cont</Text>
-        </TouchableOpacity>
+          {/* TEXT */}
+          <Text style={styles.title}>Din dulap direct{"\n"}în aplicație.</Text>
+          <Text style={styles.subtitle}>
+            Postezi în 30 secunde. Vinzi simplu. Cumperi safe.
+          </Text>
 
-        <Text style={styles.footer}>
-          Despre ModaGo:{" "}
-          <Text style={styles.footerLink}>Platforma noastră</Text>
-        </Text>
+          {/* BUTTONS (AppButton) */}
+          <AppButton
+            title="Înregistrează-te pe ModaGo"
+            onPress={() => go("Register")}
+            variant="primary"
+            height={52}
+            radius={14}
+            style={styles.primaryBtn}
+          />
+
+          <AppButton
+            title="Am deja un cont"
+            onPress={() => go("Login")}
+            variant="outline"
+            height={52}
+            radius={14}
+            style={styles.secondaryBtn}
+          />
+
+          <Text style={styles.footer}>
+            Despre ModaGo:{" "}
+            <Text style={styles.link} onPress={openAbout}>
+              Platforma noastră
+            </Text>
+          </Text>
+        </View>
+
+        {/* ✅ SPACER JOS (egalizare automată) */}
+        <View style={styles.spacerBottom} />
       </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#0f1417" },
+function makeStyles({ bg, text, subtext, border, insets, CARD, GAP, BRAND }) {
+  const R = 18;
 
-  topRow: {
-    paddingHorizontal: 18,
-    paddingTop: Platform.OS === "web" ? 12 : 6,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: bg },
 
-  langRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  globe: { fontSize: 16 },
-  langText: { color: "#dfe7ee", fontWeight: "700", fontSize: 16 },
-  chev: { color: "#dfe7ee" },
+    page: {
+      flex: 1,
+      backgroundColor: bg,
+      paddingHorizontal: 10,
+      paddingBottom: Math.max(insets.bottom, 10),
+    },
 
-  skipBtn: { padding: 8 },
-  skipText: { color: "#9fb0bf", fontWeight: "800" },
+    /* HEADER */
+    headerRow: {
+      height: 56,
+      flexDirection: "row",
+      alignItems: "center",
+      marginTop: Platform.OS === "android" ? 6 : 0,
+    },
+    headerSide: { width: 96, justifyContent: "center" },
+    headerSideRight: { alignItems: "flex-end" },
+    headerText: { color: subtext, fontWeight: "800", fontSize: 16 },
+    headerCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-  tilesWrap: { marginTop: 18 },
-  tile: {
-    borderRadius: 18,
-    overflow: "hidden",
-    backgroundColor: "#1c242a",
-  },
-  tileImg: { width: "100%", height: "100%" },
+    logoWrap: {
+      paddingHorizontal: 6,
+      paddingVertical: 4,
+      borderRadius: 16,
+    },
+    logoCrop: {
+      width: 210,
+      height: 44,
+      borderRadius: 14,
+      overflow: "hidden",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    logoImg: {
+      width: "100%",
+      height: "100%",
+      resizeMode: "cover",
+      transform: [{ scale: 1.35 }, { translateY: 8 }],
+    },
 
-  headlineWrap: { marginTop: 28, paddingHorizontal: 22 },
-  headline: {
-    color: "#e8f0f6",
-    fontSize: 34,
-    fontWeight: "800",
-    textAlign: "center",
-    lineHeight: 40,
-  },
+    /* ✅ AUTO SPACERS */
+    spacerTop: {
+      flexGrow: 1,
+      minHeight: 8,
+      maxHeight: 28,
+    },
+    spacerBottom: {
+      flexGrow: 1,
+      minHeight: 8,
+      maxHeight: 28,
+    },
 
-  btnWrap: { marginTop: 26, paddingHorizontal: 22 },
-  primaryBtn: {
-    backgroundColor: "#3d96a4",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  primaryText: { color: "#081214", fontWeight: "900", fontSize: 16 },
+    /* CONTENT WRAP */
+    content: {
+      flexShrink: 0,
+    },
 
-  secondaryBtn: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: "#3d96a4",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  secondaryText: { color: "#3d96a4", fontWeight: "900", fontSize: 16 },
+    /* GRID */
+    grid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: "space-between",
+    },
 
-  footer: {
-    marginTop: 18,
-    textAlign: "center",
-    color: "#9fb0bf",
-    fontWeight: "600",
-  },
-  footerLink: { color: "#b9c8d6", textDecorationLine: "underline" },
-});
+    tile: {
+      width: CARD,
+      height: Math.round(CARD * 1.45),
+      borderRadius: R,
+      overflow: "hidden",
+      marginBottom: GAP,
+      backgroundColor: "rgba(255,255,255,0.04)",
+      borderWidth: 1,
+      borderColor: border,
+    },
+
+    tileImg: {
+      width: "100%",
+      height: "100%",
+      resizeMode: "cover",
+    },
+
+    /* TEXT */
+    title: {
+      marginTop: 6,
+      fontSize: 34,
+      fontWeight: "900",
+      color: text,
+      textAlign: "center",
+    },
+    subtitle: {
+      marginTop: 8,
+      color: subtext,
+      textAlign: "center",
+      fontWeight: "700",
+      fontSize: 15,
+    },
+
+    /* BUTTONS (păstrăm exact width/centrare ca înainte) */
+    primaryBtn: {
+      marginTop: 16,
+      alignSelf: "center",
+      width: "88%",
+      // culoarea vine din AppButton via tokens.primary
+    },
+    secondaryBtn: {
+      marginTop: 10,
+      alignSelf: "center",
+      width: "88%",
+      // border-ul vine din AppButton via tokens.primary
+    },
+
+    footer: {
+      marginTop: 12,
+      textAlign: "center",
+      color: subtext,
+      fontWeight: "700",
+    },
+    link: {
+      color: text,
+      fontWeight: "900",
+      textDecorationLine: "underline",
+    },
+  });
+}

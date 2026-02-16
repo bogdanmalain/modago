@@ -1,29 +1,59 @@
 // src/screens/ForgotPasswordScreen.js
-import React, { useCallback, useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
   Alert,
   Platform,
   KeyboardAvoidingView,
   ScrollView,
+  Keyboard,
+  AppState,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../supabaseClient";
-import { ROUTES } from "../navigation/routes";
+import { ThemeContext } from "../theme/ThemeProvider";
+import AppButton from "../components/AppButton";
 
-export default function ForgotPasswordScreen({ navigation, route }) {
+export default function ForgotPasswordScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
+  const { tokens, scheme } = useContext(ThemeContext);
+
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // ✅ doar ca să știm dacă tastatura e deschisă (pentru poziționare)
+  const [kbOpen, setKbOpen] = useState(false);
+
   useEffect(() => {
-    const incoming = route?.params?.email;
-    if (incoming) setEmail(String(incoming));
-  }, [route?.params?.email]);
+    const showEvt =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const s1 = Keyboard.addListener(showEvt, () => setKbOpen(true));
+    const s2 = Keyboard.addListener(hideEvt, () => setKbOpen(false));
+
+    // ✅ iOS: dacă intri în altă aplicație, nu mai primești mereu "hide"
+    const appSub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") setKbOpen(false);
+    });
+
+    return () => {
+      s1?.remove?.();
+      s2?.remove?.();
+      appSub?.remove?.();
+    };
+  }, []);
 
   const notify = useCallback((title, message) => {
     if (Platform.OS === "web") {
@@ -34,32 +64,21 @@ export default function ForgotPasswordScreen({ navigation, route }) {
   }, []);
 
   const onSend = useCallback(async () => {
-    const e = String(email || "").trim();
-    if (!e) {
-      notify(
-        "Email lipsă",
-        "Introdu email-ul ca să putem trimite resetarea parolei.",
-      );
+    if (!email.trim()) {
+      notify("Email lipsă", "Introdu adresa de email.");
       return;
     }
 
     try {
       setLoading(true);
-
-      const { error } = await supabase.auth.resetPasswordForEmail(e, {
-        // web: revii la site; mobile: deep link (îl setăm separat când facem linking)
-        redirectTo: Platform.OS === "web" ? window.location.origin : undefined,
-      });
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
 
       if (error) {
-        notify("Reset eșuat", error.message);
+        notify("Eroare", error.message);
         return;
       }
 
-      notify(
-        "Verifică email-ul",
-        "Dacă există un cont pe acest email, ți-am trimis link de resetare (verifică și spam).",
-      );
+      notify("Email trimis", "Verifică inbox-ul pentru pașii de resetare.");
     } catch (err) {
       notify("Eroare", err?.message || "A apărut o eroare.");
     } finally {
@@ -67,24 +86,28 @@ export default function ForgotPasswordScreen({ navigation, route }) {
     }
   }, [email, notify]);
 
-  const backToLogin = useCallback(() => {
-    navigation.replace(ROUTES.Login, { email: String(email || "").trim() });
-  }, [navigation, email]);
+  const styles = useMemo(
+    () => makeStyles(tokens, insets, scheme, kbOpen),
+    [tokens, insets, scheme, kbOpen],
+  );
 
   return (
     <KeyboardAvoidingView
       style={styles.page}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
     >
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         <View style={styles.card}>
-          <Text style={styles.title}>Resetează parola</Text>
+          <Text style={styles.title}>Resetare parolă</Text>
+
+          {/* ✅ NU atingem textul */}
           <Text style={styles.subtitle}>
-            Introdu email-ul și îți trimitem un link de resetare.
+            Îți trimitem un email cu pașii de resetare.
           </Text>
 
           <TextInput
@@ -94,90 +117,106 @@ export default function ForgotPasswordScreen({ navigation, route }) {
             autoCapitalize="none"
             keyboardType="email-address"
             style={styles.input}
-            placeholderTextColor="#9aa4b2"
+            placeholderTextColor={tokens.subtext}
             editable={!loading}
-            returnKeyType="send"
+            returnKeyType="done"
             onSubmitEditing={onSend}
           />
 
-          <TouchableOpacity
-            activeOpacity={0.9}
-            style={styles.primaryBtn}
+          <AppButton
+            title="Trimite email"
             onPress={onSend}
+            loading={loading}
             disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.primaryText}>Trimite link</Text>
-            )}
-          </TouchableOpacity>
+            variant="primary"
+            height={52}
+            radius={14}
+          />
 
-          <TouchableOpacity
-            activeOpacity={0.9}
-            style={styles.linkBtn}
-            onPress={backToLogin}
+          <AppButton
+            title="Înapoi la autentificare"
+            onPress={() => navigation.goBack()}
             disabled={loading}
-          >
-            <Text style={styles.linkText}>Înapoi la Login</Text>
-          </TouchableOpacity>
+            variant="ghost"
+            height={40}
+            radius={14}
+            style={{ marginTop: 14, alignSelf: "center" }}
+            textStyle={{ fontSize: 15 }}
+          />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#f5f7fb" },
-  scroll: {
-    flexGrow: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  card: {
-    width: "100%",
-    maxWidth: 520,
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 22,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 2,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "900",
-    color: "#111",
-    marginBottom: 6,
-    textAlign: "center",
-  },
-  subtitle: { color: "#334155", fontWeight: "700", textAlign: "center" },
+function makeStyles(tokens, insets, scheme, kbOpen) {
+  const isDark = scheme === "dark";
 
-  input: {
-    borderWidth: 1,
-    borderColor: "#e6eaf2",
-    backgroundColor: "#f8fafc",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: "#111",
-    marginTop: 14,
-  },
+  const cardBg = isDark ? "rgba(19, 28, 46, 0.55)" : "rgba(255,255,255,0.85)";
 
-  primaryBtn: {
-    marginTop: 14,
-    backgroundColor: "#0B69FF",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryText: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  return StyleSheet.create({
+    page: {
+      flex: 1,
+      backgroundColor: tokens.bg,
+    },
 
-  linkBtn: { marginTop: 14, alignItems: "center" },
-  linkText: { color: "#0B69FF", fontWeight: "900" },
-});
+    // ✅ cheia: când tastatura e DESCHISĂ -> cardul stă jos (deasupra tastaturii)
+    // ✅ când tastatura e ÎNCHISĂ -> cardul rămâne centrat (ca înainte)
+    scrollContent: {
+      flexGrow: 1,
+      justifyContent: kbOpen ? "flex-end" : "center",
+      paddingHorizontal: 20,
+      paddingTop: Math.max(insets.top, 16),
+      paddingBottom: Math.max(insets.bottom, 16) + (kbOpen ? 14 : 24),
+    },
+
+    card: {
+      width: "100%",
+      maxWidth: 520,
+      alignSelf: "center",
+      backgroundColor: cardBg,
+      borderRadius: 22,
+      padding: 22,
+      borderWidth: 1,
+      borderColor: tokens.border,
+
+      shadowColor: "#000",
+      shadowOpacity: 0.25,
+      shadowRadius: 22,
+      shadowOffset: { width: 0, height: 14 },
+      elevation: 3,
+    },
+
+    title: {
+      fontSize: 30,
+      fontWeight: "900",
+      color: tokens.text,
+      textAlign: "center",
+      marginBottom: 6,
+    },
+
+    // ✅ NU schimbăm “cum era” — doar rămâne theme-aware
+    subtitle: {
+      marginTop: 8,
+      marginBottom: 12,
+      color:
+        tokens.scheme === "dark"
+          ? "rgba(200,210,230,0.85)" // 🔥 forțat pentru card dark (iOS safe)
+          : tokens.subtext,
+      fontWeight: "600",
+      textAlign: "center",
+    },
+
+    input: {
+      borderWidth: 1,
+      borderColor: tokens.border,
+      backgroundColor: "rgba(0,0,0,0.10)",
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 16,
+      color: tokens.text,
+      marginBottom: 14,
+    },
+  });
+}

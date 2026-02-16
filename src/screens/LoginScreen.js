@@ -1,25 +1,53 @@
-// src/screens/LoginScreen.js
-import React, { useCallback, useEffect, useRef, useState } from "react";
+/**
+ * ================================
+ * LOGINSCREEN – VARIANTA STABILĂ +15px
+ * ================================
+ *
+ * 🔒 FĂRĂ KeyboardAvoidingView
+ * 🔒 FĂRĂ calcule pe tastatură
+ * 🔒 FĂRĂ kbOpen / transform / flex-end
+ *
+ * ✅ Fără tremurat la Email ↔ Parolă
+ * ✅ Card stabil
+ * ✅ iOS safe
+ *
+ * 🔧 Doar standardizare butoane cu AppButton (brand teal via tokens.primary)
+ */
+
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useContext,
+  useMemo,
+} from "react";
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
   Alert,
   Platform,
+  ScrollView,
+  Keyboard,
+  TouchableWithoutFeedback,
+  TouchableOpacity,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
+import { ThemeContext } from "../theme/ThemeProvider";
+import AppButton from "../components/AppButton";
 
 export default function LoginScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const passRef = useRef(null);
+  const { tokens } = useContext(ThemeContext);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -52,205 +80,200 @@ export default function LoginScreen({ navigation, route }) {
       });
 
       if (error) {
-        const msg = String(error.message || "");
-        const low = msg.toLowerCase();
-
-        if (
-          low.includes("invalid login credentials") ||
-          low.includes("invalid credentials") ||
-          low.includes("invalid password")
-        ) {
-          notify("Parolă greșită", "Parola nu se potrivește.");
+        const msg = String(error.message || "").toLowerCase();
+        if (msg.includes("invalid")) {
+          notify("Autentificare eșuată", "Email sau parolă greșită.");
           return;
         }
-
-        notify("Autentificare eșuată", msg);
+        notify("Eroare", error.message);
         return;
       }
 
       if (!data?.session?.user) {
-        notify("Eroare", "Nu am primit sesiune după login.");
+        notify("Eroare", "Nu am primit sesiune.");
         return;
       }
 
-      // ✅ NU navigăm aici.
-      // AppNavigator detectează session și face redirect corect:
-      // - web -> Home
-      // - mobile -> Tabs
+      // Redirectul este gestionat de AppNavigator
     } catch (err) {
-      notify("Eroare", err?.message || "A apărut o eroare la autentificare.");
+      notify("Eroare", err?.message || "A apărut o eroare.");
     } finally {
       setLoading(false);
     }
   }, [email, password, notify]);
 
-  const goRegister = useCallback(() => {
-    navigation.replace(ROUTES.Register);
-  }, [navigation]);
-
-  const goForgot = useCallback(() => {
-    navigation.navigate(ROUTES.ForgotPassword, {
-      email: String(email || "").trim(),
-    });
-  }, [navigation, email]);
-
-  const eyeLabel = showPass ? "👁 Vezi" : "🙈";
+  const styles = useMemo(() => makeStyles(tokens, insets), [tokens, insets]);
 
   return (
-    <View style={styles.page}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Login</Text>
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <ScrollView
+        style={styles.page}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.card}>
+          <Text style={styles.title}>Login</Text>
 
-        <TextInput
-          value={email}
-          onChangeText={setEmail}
-          placeholder="Email"
-          autoCapitalize="none"
-          keyboardType="email-address"
-          style={styles.input}
-          placeholderTextColor="#9aa4b2"
-          editable={!loading}
-          returnKeyType="next"
-          blurOnSubmit={false}
-          onSubmitEditing={() => passRef.current?.focus?.()}
-        />
-
-        <View style={styles.passRow}>
           <TextInput
-            ref={passRef}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Parolă"
-            secureTextEntry={!showPass}
-            style={[styles.input, styles.passInput]}
-            placeholderTextColor="#9aa4b2"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="Email"
+            autoCapitalize="none"
+            keyboardType="email-address"
+            style={styles.input}
+            placeholderTextColor={tokens.subtext}
             editable={!loading}
-            returnKeyType="done"
-            onSubmitEditing={onLogin}
+            returnKeyType="next"
+            blurOnSubmit={false}
+            onSubmitEditing={() => passRef.current?.focus?.()}
+            autoCorrect={false}
+            textContentType="none"
+            autoComplete="off"
           />
 
-          <TouchableOpacity
-            onPress={() => setShowPass((v) => !v)}
-            style={styles.eyeBtn}
-            activeOpacity={0.8}
+          <View style={styles.passRow}>
+            <TextInput
+              ref={passRef}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Parolă"
+              secureTextEntry={!showPass}
+              style={[styles.input, styles.passInput]}
+              placeholderTextColor={tokens.subtext}
+              editable={!loading}
+              returnKeyType="done"
+              onSubmitEditing={onLogin}
+              autoCorrect={false}
+              textContentType="none"
+              autoComplete="off"
+            />
+
+            <TouchableOpacity
+              onPress={() => setShowPass((v) => !v)}
+              style={styles.eyeBtn}
+              activeOpacity={0.8}
+              disabled={loading}
+            >
+              <Text style={styles.eyeText}>{showPass ? "👁 Vezi" : "🙈"}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <AppButton
+            title="Autentificare"
+            onPress={onLogin}
+            loading={loading}
             disabled={loading}
-          >
-            <Text style={styles.eyeText}>{eyeLabel}</Text>
-          </TouchableOpacity>
+            variant="primary"
+            height={52}
+            radius={14}
+            style={{ marginTop: 14 }}
+          />
+
+          <AppButton
+            title="Ai uitat parola?"
+            onPress={() =>
+              navigation.navigate(ROUTES.ForgotPassword, {
+                email: email.trim(),
+              })
+            }
+            disabled={loading}
+            variant="outline"
+            height={52}
+            radius={14}
+            style={{ marginTop: 12 }}
+          />
+
+          <AppButton
+            title="Nu ai cont? Creează unul"
+            onPress={() => navigation.replace(ROUTES.Register)}
+            disabled={loading}
+            variant="ghost"
+            height={40}
+            radius={14}
+            style={{ marginTop: 14, alignSelf: "center" }}
+            textStyle={{ fontSize: 15 }}
+          />
         </View>
-
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={styles.primaryBtn}
-          onPress={onLogin}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.primaryText}>Autentificare</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={styles.secondaryBtn}
-          onPress={goForgot}
-          disabled={loading}
-        >
-          <Text style={styles.secondaryText}>Ai uitat parola?</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={styles.linkBtn}
-          onPress={goRegister}
-          disabled={loading}
-        >
-          <Text style={styles.linkText}>Nu ai cont? Creează unul</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+      </ScrollView>
+    </TouchableWithoutFeedback>
   );
 }
 
-const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-    backgroundColor: "#f5f7fb",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  card: {
-    width: "100%",
-    maxWidth: 520,
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 22,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 2,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "900",
-    color: "#111",
-    marginBottom: 10,
-    textAlign: "center",
-  },
+function makeStyles(tokens, insets) {
+  const cardBg =
+    tokens.scheme === "dark"
+      ? "rgba(19, 28, 46, 0.55)"
+      : "rgba(255,255,255,0.85)";
 
-  input: {
-    borderWidth: 1,
-    borderColor: "#e6eaf2",
-    backgroundColor: "#f8fafc",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: "#111",
-    marginTop: 10,
-  },
+  return StyleSheet.create({
+    page: {
+      flex: 1,
+      backgroundColor: tokens.bg,
+    },
 
-  passRow: { position: "relative", marginTop: 10 },
-  passInput: { marginTop: 0, paddingRight: 110 },
-  eyeBtn: {
-    position: "absolute",
-    right: 12,
-    top: 0,
-    height: 48,
-    justifyContent: "center",
-  },
-  eyeText: {
-    fontWeight: "900",
-    color: "#111",
-    fontFamily: Platform.OS === "web" ? "system-ui" : undefined,
-  },
+    container: {
+      flexGrow: 1,
+      paddingTop: Math.max(insets.top, 16) + 32,
+      paddingBottom: Math.max(insets.bottom, 16) + 32,
+      paddingHorizontal: 20,
+      justifyContent: "center",
+    },
 
-  primaryBtn: {
-    marginTop: 14,
-    backgroundColor: "#0B69FF",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryText: { color: "#fff", fontWeight: "900", fontSize: 16 },
+    card: {
+      width: "100%",
+      maxWidth: 520,
+      alignSelf: "center",
+      backgroundColor: cardBg,
+      borderRadius: 22,
+      padding: 22,
+      borderWidth: 1,
+      borderColor: tokens.border,
 
-  secondaryBtn: {
-    marginTop: 12,
-    backgroundColor: "#eef2ff",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#dbe3ff",
-  },
-  secondaryText: { color: "#2b4cff", fontWeight: "900", fontSize: 15 },
+      // 🔧 ridicare card 15px (fix)
+      marginBottom: 140,
 
-  linkBtn: { marginTop: 14, alignItems: "center" },
-  linkText: { color: "#0B69FF", fontWeight: "900" },
-});
+      shadowColor: "#000",
+      shadowOpacity: 0.25,
+      shadowRadius: 22,
+      shadowOffset: { width: 0, height: 14 },
+      elevation: 3,
+    },
+
+    title: {
+      fontSize: 30,
+      fontWeight: "900",
+      color: tokens.text,
+      marginBottom: 10,
+      textAlign: "center",
+    },
+
+    input: {
+      borderWidth: 1,
+      borderColor: tokens.border,
+      backgroundColor: "rgba(0,0,0,0.10)",
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 16,
+      color: tokens.text,
+      marginTop: 10,
+    },
+
+    passRow: { position: "relative", marginTop: 10 },
+    passInput: { paddingRight: 110 },
+
+    eyeBtn: {
+      position: "absolute",
+      right: 12,
+      top: 0,
+      height: 48,
+      justifyContent: "center",
+    },
+
+    eyeText: {
+      fontWeight: "900",
+      color: tokens.text,
+    },
+  });
+}

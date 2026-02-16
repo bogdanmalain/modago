@@ -11,8 +11,12 @@ export const ROUTES = {
   ItemDetails: "ItemDetails",
   EditItem: "EditItem",
 
+  // Auth
+  Welcome: "Welcome",
   Login: "Login",
   Register: "Register",
+  ForgotPassword: "ForgotPassword",
+  ResetPassword: "ResetPassword",
 
   MyItems: "MyItems",
   Favorites: "Favorites",

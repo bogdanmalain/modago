@@ -115,6 +115,7 @@ export async function fetchMyFavoritesMap(userId, itemIds) {
 }
 
 // ✅ Toggle favorite
+// ✅ Toggle favorite (SAFE: nu mai crapă pe duplicate)
 export async function toggleFavorite({ userId, itemId, isFav }) {
   if (!userId || !itemId) throw new Error("Lipsește userId sau itemId.");
 
@@ -131,11 +132,17 @@ export async function toggleFavorite({ userId, itemId, isFav }) {
     return { favored: false };
   }
 
+  // IMPORTANT: upsert pe cheia unică (user_id, item_id)
   const { error } = await supabase
     .from("favorites")
-    .insert([{ user_id: userId, item_id: iid }]);
+    .upsert([{ user_id: userId, item_id: iid }], {
+      onConflict: "user_id,item_id",
+      ignoreDuplicates: true,
+    });
 
+  // dacă Supabase/PostgREST ignoră duplicate, nu mai ai 23505
   if (error) throw error;
+
   return { favored: true };
 }
 

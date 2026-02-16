@@ -1,18 +1,35 @@
-// src/components/ItemCardLightWarm.js
+// =============================
+// MODIFICARE:
+// - countPill este acum poziționat RELATIV la cercul inimii
+// - NU mai este legat de card
+// - Inima rămâne identică
+// =============================
+
 import React from "react";
 import { View, Text, StyleSheet, Image, Pressable } from "react-native";
+
+const ICON_SIZE = 40;
+const BADGE_MIN = 22;
 
 export default function ItemCardLightWarm({
   item,
   mainImage,
   imagesCount = 0,
-  dots = null,
   isFav = false,
   favCount = 0,
   onPressCard,
   onToggleFav,
   GAP = 12,
 }) {
+  const countText = favCount > 99 ? "99+" : String(favCount || 0);
+
+  const dynamicBadgeWidth =
+    countText.length === 1
+      ? BADGE_MIN
+      : countText.length === 2
+        ? BADGE_MIN + 6
+        : BADGE_MIN + 12;
+
   return (
     <Pressable
       onPress={onPressCard}
@@ -23,6 +40,7 @@ export default function ItemCardLightWarm({
       ]}
     >
       <View style={styles.cardInner}>
+        {/* IMAGE */}
         <View style={styles.imageWrap}>
           {mainImage ? (
             <Image
@@ -32,44 +50,47 @@ export default function ItemCardLightWarm({
             />
           ) : (
             <View style={styles.noImage}>
-              <Text style={styles.noImageText}>Fără imagine</Text>
+              <Text style={{ fontWeight: "700" }}>Fără imagine</Text>
             </View>
           )}
-
-          {/* dots (dacă ai) */}
-          {dots}
-
-          {/* ❤️ pill alb + count badge */}
-          <Pressable
-            onPress={onToggleFav}
-            style={styles.heartPill}
-            hitSlop={10}
-          >
-            <Text style={[styles.heart, isFav && styles.heartActive]}>
-              {isFav ? "♥" : "♡"}
-            </Text>
-
-            <View style={styles.countBadge}>
-              <Text style={styles.countText}>{favCount}</Text>
-            </View>
-          </Pressable>
         </View>
 
-        <View style={styles.body}>
-          <Text numberOfLines={2} style={styles.title}>
-            {item?.title || "-"}
-          </Text>
+        {/* CONTENT */}
+        <View style={styles.contentRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title} numberOfLines={2}>
+              {item?.title}
+            </Text>
 
-          <Text numberOfLines={1} style={styles.price}>
-            {typeof item?.price === "number" ? item.price : item?.price || "-"}{" "}
-            lei
-          </Text>
+            <Text style={styles.price}>{item?.price} lei</Text>
 
-          <View style={styles.divider} />
+            <Text style={styles.meta}>{item?.category}</Text>
 
-          <Text numberOfLines={1} style={styles.meta}>
-            {item?.category || "Categorie"}
-          </Text>
+            <Text style={styles.meta}>{imagesCount} poze</Text>
+          </View>
+
+          {/* ❤️ FAVORITE */}
+          <View style={styles.favWrap}>
+            <View style={{ position: "relative" }}>
+              <Pressable
+                onPress={onToggleFav}
+                style={({ pressed }) => [
+                  styles.favCircle,
+                  pressed && { transform: [{ scale: 0.95 }] },
+                ]}
+              >
+                <Text style={styles.heart}>{isFav ? "❤" : "♡"}</Text>
+              </Pressable>
+
+              {favCount > 0 && (
+                <View
+                  style={[styles.countPill, { minWidth: dynamicBadgeWidth }]}
+                >
+                  <Text style={styles.countText}>{countText}</Text>
+                </View>
+              )}
+            </View>
+          </View>
         </View>
       </View>
     </Pressable>
@@ -77,19 +98,8 @@ export default function ItemCardLightWarm({
 }
 
 const styles = StyleSheet.create({
-  // warm “paper” + shadow elegant
   cardOuter: {
     flex: 1,
-    card: {
-      backgroundColor: "#FFFFFF",
-    }, // warm off-white
-    borderRadius: 20,
-    padding: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
   },
 
   cardInner: {
@@ -97,98 +107,91 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#EDE7DD",
+    borderColor: "rgba(0,0,0,0.06)",
   },
 
   imageWrap: {
-    padding: 8,
-    paddingBottom: 0,
-    position: "relative",
+    width: "100%",
+    aspectRatio: 1,
   },
 
   image: {
     width: "100%",
-    aspectRatio: 1,
-    borderRadius: 14,
-    backgroundColor: "#EEE",
+    height: "100%",
   },
 
   noImage: {
-    width: "100%",
-    aspectRatio: 1,
-    borderRadius: 14,
-    backgroundColor: "#EFEFEF",
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#eee",
   },
-  noImageText: { color: "#6B7280", fontWeight: "800" },
 
-  // ❤️ in imagine, dreapta-jos
-  heartPill: {
-    position: "absolute",
-    right: 14,
-    bottom: 14,
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  heart: { fontSize: 22, fontWeight: "900", color: "#111827" },
-  heartActive: { color: "#EF4444" },
-
-  countBadge: {
-    position: "absolute",
-    right: -6,
-    bottom: -6,
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: "#111827",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 6,
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
-  countText: { color: "#FFFFFF", fontWeight: "900", fontSize: 12 },
-
-  body: {
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 14,
+  contentRow: {
+    padding: 12,
+    flexDirection: "row",
   },
 
   title: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "900",
-    color: "#111827",
-    lineHeight: 18,
+    color: "#111",
   },
 
   price: {
     marginTop: 6,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "900",
-    color: "#2F6BFF", // accent (poți lega ulterior la tema)
-  },
-
-  divider: {
-    marginTop: 12,
-    height: 1,
-    backgroundColor: "#EFE7DC",
+    color: "#2CA6A4",
   },
 
   meta: {
-    marginTop: 10,
+    marginTop: 4,
     fontSize: 13,
     fontWeight: "700",
     color: "#6B7280",
+  },
+
+  favWrap: {
+    marginLeft: 10,
+    alignItems: "center",
+    justifyContent: "flex-start",
+  },
+
+  favCircle: {
+    width: ICON_SIZE,
+    height: ICON_SIZE,
+    borderRadius: ICON_SIZE / 2,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
+  },
+
+  heart: {
+    fontSize: 18,
+    color: "#EF4444",
+  },
+
+  // 🔥 acum e legat de cerc
+  countPill: {
+    position: "absolute",
+    right: -6,
+    bottom: -6,
+    height: BADGE_MIN,
+    paddingHorizontal: 6,
+    borderRadius: 999,
+    backgroundColor: "#2CA6A4",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+
+  countText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "900",
   },
 });
