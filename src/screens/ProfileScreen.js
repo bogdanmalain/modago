@@ -1,14 +1,4 @@
 // src/screens/ProfileScreen.js
-/**
- * SCHIMBĂRI (pe scurt):
- * 1) FIX navigare către ThemeSettings: route-ul este în Tab.Navigator, nu în MobileRootStack.
- *    => folosim navigation.navigate("TabsRoot", { screen: ROUTES.ThemeSettings })
- * 2) Am aplicat aceeași logică și pentru MyItems + Favorites (aceeași cauză de eroare).
- * 3) Restul UI/logică rămân identice.
- */
-
-// Profil (mobile) – theme-aware complet (Light/Dark/Auto) folosind tokens.
-// Fix: fundalul nu mai rămâne alb, toate cardurile/texte/butoane folosesc tokens.
 
 import React, {
   useCallback,
@@ -29,7 +19,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
-import { fetchMyItems, fetchMyFavoriteItems } from "../services/itemsService";
+import { fetchMyItems } from "../services/itemsService";
+import { fetchFavoriteItems } from "../services/favoritesService";
 import { ThemeContext } from "../theme/ThemeProvider";
 
 function pickTok(tokens, key, fallback) {
@@ -97,7 +88,7 @@ export default function ProfileScreen({ navigation }) {
     try {
       const [myItems, favItems] = await Promise.all([
         fetchMyItems(uid),
-        fetchMyFavoriteItems(uid),
+        fetchFavoriteItems(uid),
       ]);
 
       setMyItemsCount(Array.isArray(myItems) ? myItems.length : 0);
@@ -123,8 +114,6 @@ export default function ProfileScreen({ navigation }) {
     return true;
   }, [authReady, user]);
 
-  // ✅ FIX: MyItems/Favorites/ThemeSettings sunt în Tab.Navigator (MobileTabs),
-  // deci navigăm prin route-ul Stack: "TabsRoot" și specificăm screen-ul din tabs.
   const goMyItems = useCallback(() => {
     if (!ensureLogged()) return;
     navigation.navigate("TabsRoot", { screen: ROUTES.MyItems });
@@ -156,7 +145,7 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <ScrollView
-      style={S.screen} // ✅ bg pe tot ecranul
+      style={S.screen}
       contentContainerStyle={[
         S.content,
         {
@@ -260,11 +249,6 @@ export default function ProfileScreen({ navigation }) {
           <ActivityIndicator />
         </View>
       ) : null}
-
-      {/* mic debug discret, poți șterge */}
-      {/* <Text style={{ marginTop: 10, textAlign: "center", color: S.mutedText.color }}>
-        Theme: {scheme}
-      </Text> */}
     </ScrollView>
   );
 }
@@ -276,7 +260,6 @@ function makeStyles(tokens) {
   const muted = pickTok(tokens, "muted", pickTok(tokens, "subtext", "#9CA3AF"));
   const border = pickTok(tokens, "border", "rgba(255,255,255,0.10)");
   const divider = pickTok(tokens, "divider", "rgba(255,255,255,0.08)");
-
   const primary = pickTok(
     tokens,
     "primary",
@@ -375,7 +358,5 @@ function makeStyles(tokens) {
       justifyContent: "center",
     },
     logoutText: { color: onPrimary, fontWeight: "900", fontSize: 18 },
-
-    mutedText: { color: muted },
   });
 }

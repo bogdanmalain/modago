@@ -1,7 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
+import Constants from "expo-constants";
 
-const SUPABASE_URL = "https://hvtlibovcawhgiqwgdte.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh2dGxpYm92Y2F3aGdpcXdnZHRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1OTgzMjgsImV4cCI6MjA4MDE3NDMyOH0.RURTQ0HThO7Q6HurTl35An0q2Ex3aYIDJ5GoUArqu2E";
+const SUPABASE_URL = Constants.expoConfig?.extra?.supabaseUrl;
+const SUPABASE_ANON_KEY = Constants.expoConfig?.extra?.supabaseAnonKey;
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error(
+    "[supabaseClient] Lipsesc variabilele de mediu. Verifică app.config.js și .env",
+  );
+}
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+});

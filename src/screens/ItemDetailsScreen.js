@@ -1,13 +1,8 @@
 // src/screens/ItemDetailsScreen.js
-// ============================================
-// MODIFICARE:
-// - FIX: după delete, Home se actualizează imediat (fără logout/login)
-//   -> trimitem { deletedItemId, deletedAt } către Home și apoi revenim înapoi
-// NU se modifică:
-// - Favorite rămâne sus lângă thumbnails (stil ca Home)
-// - Sync favorites la focus + după toggle
-// - Reset galerie la focus (pornește de la prima poză)
-// ============================================
+// MODIFICARE: fix isFav nu se afișa corect la prima intrare pe produs
+// Cauza: loadFavInfo se apela înainte ca sesiunea să fie încărcată (userId = null)
+// Fix: folosim un state sentinel "ready" ca să știm când sesiunea e gata
+// și declanșăm loadFavInfo doar după ce avem răspunsul de la supabase.auth.getSession
 
 import React, {
   useCallback,
@@ -34,16 +29,19 @@ import { useFocusEffect } from "@react-navigation/native";
 
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
+import { deleteItemById } from "../services/itemsService";
 import {
-  deleteItemById,
-  fetchFavoritesCounts,
-  fetchMyFavoritesMap,
+  fetchFavoritesCountsForItems,
+  fetchFavoritesMapForUser,
   toggleFavorite,
-} from "../services/itemsService";
+} from "../services/favoritesService";
 import { ThemeContext } from "../theme/ThemeProvider";
 
 const FAV_ICON = 44;
 const BADGE_MIN = 22;
+
+const GLASS_H = 52;
+const GLASS_ICON = 32;
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -75,14 +73,17 @@ export default function ItemDetailsScreen({ navigation, route }) {
 
   const passedItem = route?.params?.item || null;
 
+  // "ready" = sentinel care indică că am primit răspuns de la getSession
+  // null = încă nu știm, object = logat, "ready" = știm că nu e logat
   const [session, setSession] = useState(null);
+  const [sessionReady, setSessionReady] = useState(false);
+
   const [item, setItem] = useState(passedItem);
 
   const scrollRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const heroPressRef = useRef(null);
 
-  // pulse subtle
   const pulse = useRef(new Animated.Value(1)).current;
 
   useFocusEffect(
@@ -90,7 +91,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
       const fresh = route?.params?.item || null;
       setItem(fresh);
 
-      // reset galerie la focus
       setActiveIndex(0);
       try {
         scrollRef.current?.scrollTo?.({ x: 0, y: 0, animated: false });
@@ -128,11 +128,13 @@ export default function ItemDetailsScreen({ navigation, route }) {
     return Array.isArray(arr) ? arr.filter(Boolean) : [];
   }, [item?.images]);
 
+  // Încărcăm sesiunea o singură dată și setăm sessionReady când avem răspuns
   useEffect(() => {
     let sub;
     (async () => {
       const { data } = await supabase.auth.getSession();
       setSession(data?.session ?? null);
+      setSessionReady(true);
 
       const { data: listener } = supabase.auth.onAuthStateChange((_e, sess) => {
         setSession(sess ?? null);
@@ -148,8 +150,10 @@ export default function ItemDetailsScreen({ navigation, route }) {
 
     try {
       const [counts, mine] = await Promise.all([
-        fetchFavoritesCounts([itemId]),
-        userId ? fetchMyFavoritesMap(userId, [itemId]) : Promise.resolve({}),
+        fetchFavoritesCountsForItems([itemId]),
+        userId
+          ? fetchFavoritesMapForUser(userId, [itemId])
+          : Promise.resolve({}),
       ]);
 
       const cntRaw = pickById(counts, itemId);
@@ -162,14 +166,18 @@ export default function ItemDetailsScreen({ navigation, route }) {
     }
   }, [itemId, userId]);
 
+  // FIX: așteptăm sessionReady înainte să apelăm loadFavInfo
+  // Astfel userId e corect (logat sau null) când facem query-ul
   useEffect(() => {
+    if (!sessionReady) return;
     loadFavInfo();
-  }, [loadFavInfo]);
+  }, [loadFavInfo, sessionReady]);
 
   useFocusEffect(
     useCallback(() => {
+      if (!sessionReady) return;
       loadFavInfo();
-    }, [loadFavInfo]),
+    }, [loadFavInfo, sessionReady]),
   );
 
   const goBackSafe = useCallback(() => {
@@ -233,7 +241,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
           try {
             await deleteItemById(itemId);
 
-            // ✅ trimite către Home (update local) + apoi back
             Alert.alert("Șters", "Anunțul a fost șters.", [
               {
                 text: "OK",
@@ -242,9 +249,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
                     deletedItemId: String(itemId),
                     deletedAt: Date.now(),
                   });
-
-                  if (navigation?.canGoBack?.()) navigation.goBack();
-                  else navigation.navigate(ROUTES.Home);
                 },
               },
             ]);
@@ -340,11 +344,10 @@ export default function ItemDetailsScreen({ navigation, route }) {
     );
   }
 
-  const fabTop = Math.max(insets.top, 10);
+  const headerTop = Math.max(insets.top, 10) + 6;
 
   return (
     <View style={S.safe}>
-      {/* HERO */}
       <View style={S.mediaWrap}>
         <ScrollView
           ref={scrollRef}
@@ -373,14 +376,21 @@ export default function ItemDetailsScreen({ navigation, route }) {
           )}
         </ScrollView>
 
-        {/* Back pe imagine */}
-        <Pressable
-          onPress={goBackSafe}
-          style={[S.fab, { left: 14, top: fabTop }]}
-          hitSlop={12}
-        >
-          <Text style={S.fabIcon}>←</Text>
-        </Pressable>
+        <View style={[S.headerRow, { top: headerTop }]}>
+          <Pressable onPress={goBackSafe} style={S.glassCircle} hitSlop={12}>
+            <Text style={S.glassBack}>‹</Text>
+          </Pressable>
+
+          <View style={S.glassPill}>
+            <Text style={S.glassTitle}>ModaGo</Text>
+          </View>
+
+          <View style={{ flex: 1 }} />
+
+          <Pressable onPress={() => {}} style={S.glassCircle} hitSlop={12}>
+            <Text style={S.glassDots}>•••</Text>
+          </Pressable>
+        </View>
 
         {images.length > 1 ? (
           <View style={S.dots}>
@@ -391,7 +401,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
         ) : null}
       </View>
 
-      {/* BAR: thumbnails + favorite */}
       <View style={S.thumbsBar}>
         <View style={[S.thumbsRow, images.length <= 1 && { opacity: 0 }]}>
           {images.length > 1
@@ -456,7 +465,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
         </View>
       ) : null}
 
-      {/* CONTENT */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, paddingBottom: 26 }}
@@ -495,10 +503,8 @@ function makeStyles(tokens, HERO_H) {
   const danger = pickTok(tokens, "danger", "#EF4444");
   const shadowColor = pickTok(tokens, "shadowColor", "#000");
   const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
-
   const mediaBg = pickTok(tokens, "mediaBg", "rgba(0,0,0,0.35)");
-  const fabBg = pickTok(tokens, "fabBg", "rgba(255,255,255,0.92)");
-
+  const glassBg = pickTok(tokens, "glassBg", "rgba(10,14,22,0.52)");
   const favIdleBg = pickTok(tokens, "favIdleBg", "rgba(255,255,255,0.06)");
   const favIdleBorder = pickTok(
     tokens,
@@ -506,41 +512,73 @@ function makeStyles(tokens, HERO_H) {
     "rgba(255,255,255,0.14)",
   );
   const favGhost = pickTok(tokens, "favGhost", "rgba(255,255,255,0.75)");
-
   const favActiveBg = pickTok(tokens, "favActiveBg", "rgba(255,255,255,0.95)");
   const favActiveBorder = pickTok(
     tokens,
     "favActiveBorder",
     "rgba(255,255,255,0.35)",
   );
-
   const badgeBorder = pickTok(tokens, "badgeBorder", "rgba(255,255,255,0.95)");
+
+  const glassBase = {
+    height: GLASS_H,
+    borderRadius: 999,
+    backgroundColor: glassBg,
+    borderWidth: 0,
+    shadowColor,
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  };
 
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: bg },
-
     mediaWrap: { backgroundColor: mediaBg },
     heroImg: { width: "100%", height: HERO_H, backgroundColor: mediaBg },
     noImg: { alignItems: "center", justifyContent: "center" },
     noImgText: { color: onPrimary, fontWeight: "900" },
 
-    fab: {
+    headerRow: {
       position: "absolute",
-      width: 46,
-      height: 46,
-      borderRadius: 23,
-      backgroundColor: fabBg,
+      left: 14,
+      right: 14,
+      height: GLASS_H,
+      flexDirection: "row",
       alignItems: "center",
-      justifyContent: "center",
-      borderWidth: 1,
-      borderColor: border,
-      shadowColor,
-      shadowOpacity: 0.12,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 4,
+      zIndex: 30,
     },
-    fabIcon: { fontSize: 22, fontWeight: "900", color: "#111" },
+    glassCircle: { ...glassBase, width: GLASS_H },
+    glassBack: {
+      fontSize: GLASS_ICON,
+      lineHeight: GLASS_ICON + 2,
+      fontWeight: "700",
+      color: "rgba(255,255,255,0.90)",
+      textAlign: "center",
+      textAlignVertical: "center",
+      includeFontPadding: false,
+      marginLeft: 0,
+      marginTop: 0,
+    },
+    glassDots: {
+      fontSize: 18,
+      lineHeight: 18,
+      fontWeight: "800",
+      color: "rgba(255,255,255,0.90)",
+      textAlign: "center",
+      textAlignVertical: "center",
+      includeFontPadding: false,
+      marginTop: 0,
+    },
+    glassPill: { ...glassBase, paddingHorizontal: 18, marginLeft: 6 },
+    glassTitle: {
+      color: "rgba(255,255,255,0.92)",
+      fontWeight: "800",
+      fontSize: 18,
+      letterSpacing: 0.2,
+    },
 
     dots: {
       position: "absolute",
@@ -568,7 +606,6 @@ function makeStyles(tokens, HERO_H) {
       backgroundColor: bg,
     },
     thumbsRow: { flex: 1, flexDirection: "row", gap: 10 },
-
     thumbWrap: {
       width: 56,
       height: 56,
@@ -639,7 +676,6 @@ function makeStyles(tokens, HERO_H) {
     title: { fontSize: 40, fontWeight: "900", marginTop: 6, color: text },
     price: { fontSize: 34, fontWeight: "900", color: primary, marginTop: 6 },
     cat: { marginTop: 10, color: muted, fontWeight: "800" },
-
     section: { marginTop: 22, fontSize: 22, fontWeight: "900", color: text },
     desc: { marginTop: 8, fontSize: 16, lineHeight: 22, color: text },
 
@@ -648,7 +684,7 @@ function makeStyles(tokens, HERO_H) {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: fabBg,
+      backgroundColor: "rgba(255,255,255,0.92)",
       alignItems: "center",
       justifyContent: "center",
       borderWidth: 1,

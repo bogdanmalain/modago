@@ -1,14 +1,9 @@
-// src/screens/HomeScreen.js (iOS/Android)
-// ============================================
-// MODIFICARE:
-// - FIX: după delete din ItemDetails, Home elimină local anunțul imediat (fără refetch)
-//   -> primește route.params.deletedItemId + șterge din items + curăță favCounts/myFavMap
-//   -> păstrează scroll position (nu sare sus)
-// - Rămâne valabil: NU refacem lista (fetchItems) la focus, doar refresh favorites
-// NU se modifică:
-// - UI: search, chips, grid, carduri, layout inimă
-// - aplicația rămâne default Light (nu auto dark)
-// ============================================
+// src/screens/HomeScreen.js
+// MODIFICARE: importurile pentru favorite mutate din itemsService în favoritesService
+// fetchFavoritesCounts -> fetchFavoritesCountsForItems
+// fetchMyFavoritesMap -> fetchFavoritesMapForUser
+// toggleFavorite -> favoritesService
+// fetchItems rămâne în itemsService
 
 import React, {
   useCallback,
@@ -16,6 +11,7 @@ import React, {
   useMemo,
   useState,
   useContext,
+  useRef,
 } from "react";
 import {
   View,
@@ -34,12 +30,12 @@ import { useFocusEffect } from "@react-navigation/native";
 import WelcomeScreen from "./WelcomeScreen";
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
+import { fetchItems } from "../services/itemsService";
 import {
-  fetchItems,
-  fetchFavoritesCounts,
-  fetchMyFavoritesMap,
+  fetchFavoritesCountsForItems,
+  fetchFavoritesMapForUser,
   toggleFavorite,
-} from "../services/itemsService";
+} from "../services/favoritesService";
 
 import ItemCardLightWarm from "../components/ItemCardLightWarm";
 import ItemCardDarkProduct from "../components/ItemCardDarkProduct";
@@ -49,7 +45,6 @@ import { ThemeContext } from "../theme/ThemeProvider";
 export default function HomeScreen({ navigation, route, query, setQuery }) {
   const insets = useSafeAreaInsets();
 
-  // ✅ Theme (instant switch)
   const { scheme, tokens } = useContext(ThemeContext);
   const isDark = scheme === "dark";
 
@@ -60,43 +55,12 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // favorites state
-  const [favCounts, setFavCounts] = useState({}); // itemId -> count
-  const [myFavMap, setMyFavMap] = useState({}); // itemId -> true
+  const [favCounts, setFavCounts] = useState({});
+  const [myFavMap, setMyFavMap] = useState({});
 
-  // ============================================
-  // MODIFICARE: consumăm delete din ItemDetails
-  // ============================================
-  useEffect(() => {
-    const deletedId = route?.params?.deletedItemId;
-    const deletedAt = route?.params?.deletedAt; // doar ca trigger
+  const listRef = useRef(null);
+  const scrollOffsetRef = useRef(0);
 
-    if (!deletedId) return;
-
-    setItems((prev) =>
-      Array.isArray(prev)
-        ? prev.filter((it) => String(it?.id) !== String(deletedId))
-        : [],
-    );
-
-    // curățăm și favorites cache ca să nu rămână “fantome”
-    setFavCounts((prev) => {
-      const next = { ...(prev || {}) };
-      delete next[String(deletedId)];
-      return next;
-    });
-
-    setMyFavMap((prev) => {
-      const next = { ...(prev || {}) };
-      delete next[String(deletedId)];
-      return next;
-    });
-
-    // consumăm param-ul ca să nu se reaplice
-    navigation.setParams({ deletedItemId: undefined, deletedAt: undefined });
-  }, [route?.params?.deletedItemId, route?.params?.deletedAt, navigation]);
-
-  // 🔎 Search local
   const [localQuery, setLocalQuery] = useState(String(query || ""));
   useEffect(() => setLocalQuery(String(query || "")), [query]);
 
@@ -114,7 +78,6 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
   );
   const [activeCat, setActiveCat] = useState("Toate");
 
-  // ✅ spacing
   const GAP = isDark ? 16 : 12;
   const H_PADDING = 14;
   const numColumns = 2;
@@ -149,56 +112,212 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
         const userId = session?.user?.id;
 
         const [counts, mine] = await Promise.all([
-          fetchFavoritesCounts(ids),
-          userId ? fetchMyFavoritesMap(userId, ids) : Promise.resolve({}),
+          fetchFavoritesCountsForItems(ids),
+          userId ? fetchFavoritesMapForUser(userId, ids) : Promise.resolve({}),
         ]);
 
         setFavCounts(counts || {});
         setMyFavMap(mine || {});
-      } catch (err) {
-        // nu blocăm UI-ul pentru favorite refresh
+      } catch {
+        // silent
       }
     },
     [session?.user?.id],
   );
 
-  const loadItems = useCallback(async () => {
-    setErrorMsg("");
-    setLoading(true);
+  const loadItems = useCallback(
+    async ({ keepScroll = false } = {}) => {
+      setErrorMsg("");
+      setLoading(true);
 
-    try {
-      const data = await fetchItems();
-      const list = Array.isArray(data) ? data : [];
-      setItems(list);
+      const prevOffset = scrollOffsetRef.current || 0;
 
-      // initial fav refresh pe lista nouă
-      await refreshFavsForList(list);
-    } catch (err) {
-      console.log("❌ loadItems error:", err);
-      setErrorMsg(err?.message || "Eroare la încărcare produse.");
-      setItems([]);
-      setFavCounts({});
-      setMyFavMap({});
-    } finally {
-      setLoading(false);
-    }
-  }, [refreshFavsForList]);
+      try {
+        const data = await fetchItems();
+        const list = Array.isArray(data) ? data : [];
+        setItems(list);
+        await refreshFavsForList(list);
 
-  // ✅ Load o singură dată la mount (nu la focus)
+        if (keepScroll) {
+          requestAnimationFrame(() => {
+            try {
+              listRef.current?.scrollToOffset?.({
+                offset: prevOffset,
+                animated: false,
+              });
+            } catch {}
+          });
+        }
+      } catch (err) {
+        console.log("❌ loadItems error:", err);
+        setErrorMsg(err?.message || "Eroare la încărcare produse.");
+        setItems([]);
+        setFavCounts({});
+        setMyFavMap({});
+      } finally {
+        setLoading(false);
+      }
+    },
+    [refreshFavsForList],
+  );
+
   useEffect(() => {
     loadItems();
   }, [loadItems]);
 
-  // ✅ La focus NU mai refacem lista -> doar refresh favorites, ca să nu sară scroll-ul sus
   useFocusEffect(
     useCallback(() => {
-      if (items && items.length > 0) {
-        refreshFavsForList(items);
-      } else {
-        loadItems();
-      }
+      if (items && items.length > 0) refreshFavsForList(items);
+      else loadItems();
     }, [items, refreshFavsForList, loadItems]),
   );
+
+  useEffect(() => {
+    const deletedId = route?.params?.deletedItemId;
+    const deletedAt = route?.params?.deletedAt;
+    if (!deletedId || !deletedAt) return;
+
+    setItems((prev) =>
+      Array.isArray(prev)
+        ? prev.filter((it) => String(it?.id) !== String(deletedId))
+        : [],
+    );
+
+    setFavCounts((prev) => {
+      const next = { ...(prev || {}) };
+      delete next[String(deletedId)];
+      return next;
+    });
+
+    setMyFavMap((prev) => {
+      const next = { ...(prev || {}) };
+      delete next[String(deletedId)];
+      return next;
+    });
+
+    navigation.setParams({ deletedItemId: undefined, deletedAt: undefined });
+  }, [route?.params?.deletedItemId, route?.params?.deletedAt, navigation]);
+
+  useEffect(() => {
+    const createdItem = route?.params?.createdItem;
+    const createdItemId = route?.params?.createdItemId;
+    const createdAt = route?.params?.createdAt;
+    if (!createdAt) return;
+
+    if (
+      createdItem &&
+      typeof createdItem === "object" &&
+      createdItem.id != null
+    ) {
+      const newId = String(createdItem.id);
+
+      setItems((prev) => {
+        const arr = Array.isArray(prev) ? prev : [];
+        if (arr.some((it) => String(it?.id) === newId)) return arr;
+        return [createdItem, ...arr];
+      });
+
+      setFavCounts((prev) => ({
+        ...(prev || {}),
+        [newId]: prev?.[newId] ?? 0,
+      }));
+
+      setMyFavMap((prev) => {
+        const next = { ...(prev || {}) };
+        if (next[newId] == null) next[newId] = false;
+        return next;
+      });
+
+      navigation.setParams({
+        createdItem: undefined,
+        createdItemId: undefined,
+        createdAt: undefined,
+      });
+      return;
+    }
+
+    if (createdItemId) {
+      loadItems({ keepScroll: true }).finally(() => {
+        navigation.setParams({
+          createdItem: undefined,
+          createdItemId: undefined,
+          createdAt: undefined,
+        });
+      });
+      return;
+    }
+
+    navigation.setParams({
+      createdItem: undefined,
+      createdItemId: undefined,
+      createdAt: undefined,
+    });
+  }, [
+    route?.params?.createdItem,
+    route?.params?.createdItemId,
+    route?.params?.createdAt,
+    navigation,
+    loadItems,
+  ]);
+
+  useEffect(() => {
+    const updatedItem = route?.params?.updatedItem;
+    const updatedItemId = route?.params?.updatedItemId;
+    const updatedAt = route?.params?.updatedAt;
+    if (!updatedAt) return;
+
+    if (
+      updatedItem &&
+      typeof updatedItem === "object" &&
+      updatedItem.id != null
+    ) {
+      const uid = String(updatedItem.id);
+
+      setItems((prev) => {
+        const arr = Array.isArray(prev) ? prev : [];
+        let changed = false;
+
+        const next = arr.map((it) => {
+          if (String(it?.id) !== uid) return it;
+          changed = true;
+          return updatedItem;
+        });
+
+        if (!changed) return [updatedItem, ...next];
+        return next;
+      });
+
+      navigation.setParams({
+        updatedItem: undefined,
+        updatedItemId: undefined,
+        updatedAt: undefined,
+      });
+      return;
+    }
+
+    if (updatedItemId) {
+      loadItems({ keepScroll: true }).finally(() => {
+        navigation.setParams({
+          updatedItem: undefined,
+          updatedItemId: undefined,
+          updatedAt: undefined,
+        });
+      });
+      return;
+    }
+
+    navigation.setParams({
+      updatedItem: undefined,
+      updatedItemId: undefined,
+      updatedAt: undefined,
+    });
+  }, [
+    route?.params?.updatedItem,
+    route?.params?.updatedItemId,
+    route?.params?.updatedAt,
+    navigation,
+    loadItems,
+  ]);
 
   const filteredItems = useMemo(() => {
     const q = String(localQuery || "")
@@ -230,7 +349,6 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
     return Array.isArray(arr) ? arr.filter(Boolean) : [];
   }, []);
 
-  // Dots (același layout, culori în funcție de temă)
   const renderDots = useCallback(
     (images) => {
       if (!Array.isArray(images) || images.length <= 1) return null;
@@ -282,7 +400,6 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
       const itemId = String(item?.id);
       const isFav = !!myFavMap[itemId];
 
-      // optimistic UI
       setMyFavMap((prev) => ({ ...prev, [itemId]: !isFav }));
       setFavCounts((prev) => ({
         ...prev,
@@ -292,7 +409,6 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
       try {
         await toggleFavorite({ userId, itemId, isFav });
       } catch (err) {
-        // rollback
         setMyFavMap((prev) => ({ ...prev, [itemId]: isFav }));
         setFavCounts((prev) => ({
           ...prev,
@@ -361,11 +477,9 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
     ],
   );
 
-  // ✅ gate AFTER hooks
   const shouldShowWelcome = Platform.OS !== "web" && !isLoggedIn;
   if (shouldShowWelcome) return <WelcomeScreen navigation={navigation} />;
 
-  // ✅ Tokens for chips (TEAL everywhere)
   const chipActiveBorder = tokens.primary;
   const chipActiveBg =
     tokens.primarySoft ||
@@ -378,7 +492,6 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
 
   return (
     <View style={[styles.screen, { backgroundColor: tokens.bg }]}>
-      {/* TOP: search + chips */}
       <View
         style={[
           styles.topArea,
@@ -470,7 +583,6 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
         </View>
       </View>
 
-      {/* LIST */}
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" />
@@ -483,7 +595,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
           <Text style={styles.errorText}>{errorMsg}</Text>
           <TouchableOpacity
             style={[styles.retryBtn, { backgroundColor: tokens.primary }]}
-            onPress={loadItems}
+            onPress={() => loadItems({ keepScroll: false })}
             activeOpacity={0.9}
           >
             <Text style={styles.retryText}>Reîncearcă</Text>
@@ -491,6 +603,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
         </View>
       ) : (
         <FlatList
+          ref={listRef}
           data={filteredItems}
           renderItem={renderItem}
           keyExtractor={(it) => String(it.id)}
@@ -498,6 +611,10 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
           columnWrapperStyle={{ paddingHorizontal: H_PADDING, gap: GAP }}
+          onScroll={(e) => {
+            scrollOffsetRef.current = e?.nativeEvent?.contentOffset?.y || 0;
+          }}
+          scrollEventThrottle={16}
           ListEmptyComponent={
             <View style={styles.center}>
               <Text style={[styles.emptyText, { color: tokens.muted }]}>
@@ -515,7 +632,6 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-
   topArea: { paddingBottom: 8 },
 
   searchRow: {
@@ -553,7 +669,6 @@ const styles = StyleSheet.create({
 
   listContent: { paddingTop: 12, paddingBottom: 34 },
 
-  // dots
   dotsWrap: {
     position: "absolute",
     bottom: 18,

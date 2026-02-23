@@ -1,5 +1,15 @@
 // src/screens/FavoritesScreen.js
-import React, { useCallback, useEffect, useState } from "react";
+// MODIFICARE: fetchMyFavoriteItems mutat din itemsService în favoritesService
+// -> fetchFavoriteItems (numele nou din favoritesService)
+// + adăugat suport theme-aware (tokens) ca restul screen-urilor
+
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   View,
   Text,
@@ -14,10 +24,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
-import { fetchMyFavoriteItems } from "../services/itemsService";
+import { fetchFavoriteItems } from "../services/favoritesService";
+import { ThemeContext } from "../theme/ThemeProvider";
+
+function pickTok(tokens, key, fallback) {
+  const v = tokens?.[key];
+  return v !== undefined && v !== null ? v : fallback;
+}
 
 export default function FavoritesScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const { tokens } = useContext(ThemeContext);
+  const S = useMemo(() => makeStyles(tokens), [tokens]);
 
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -46,10 +64,8 @@ export default function FavoritesScreen({ navigation }) {
   }, []);
 
   const load = useCallback(async () => {
-    // 🔒 așteptăm auth
     if (!authReady) return;
 
-    // ❗ dacă nu e user, NU navigăm la Login
     if (!userId) {
       setItems([]);
       setLoading(false);
@@ -58,7 +74,7 @@ export default function FavoritesScreen({ navigation }) {
 
     setLoading(true);
     try {
-      const data = await fetchMyFavoriteItems(userId);
+      const data = await fetchFavoriteItems(userId);
       setItems(Array.isArray(data) ? data : []);
     } catch (e) {
       console.log("❌ Favorites load:", e);
@@ -78,7 +94,6 @@ export default function FavoritesScreen({ navigation }) {
     if (navigation?.canGoBack?.()) {
       navigation.goBack();
     } else {
-      // fallback: mergem înapoi în tab-ul Profile
       const parent = navigation.getParent?.();
       if (parent?.navigate) parent.navigate(ROUTES.Profile);
     }
@@ -92,70 +107,63 @@ export default function FavoritesScreen({ navigation }) {
         <TouchableOpacity
           activeOpacity={0.9}
           onPress={() => navigation.navigate(ROUTES.ItemDetails, { item })}
-          style={styles.card}
+          style={S.card}
         >
-          <View style={styles.imgBox}>
+          <View style={S.imgBox}>
             {img ? (
-              <Image
-                source={{ uri: img }}
-                style={styles.img}
-                resizeMode="cover"
-              />
+              <Image source={{ uri: img }} style={S.img} resizeMode="cover" />
             ) : (
-              <View style={styles.noImg}>
-                <Text style={styles.noImgText}>Fără imagine</Text>
+              <View style={S.noImg}>
+                <Text style={S.noImgText}>Fără imagine</Text>
               </View>
             )}
           </View>
 
-          <View style={styles.body}>
-            <Text numberOfLines={1} style={styles.title}>
+          <View style={S.body}>
+            <Text numberOfLines={1} style={S.title}>
               {item?.title || "-"}
             </Text>
-            <Text style={styles.price}>{item?.price ?? "-"} lei</Text>
-            <Text numberOfLines={2} style={styles.desc}>
+            <Text style={S.price}>{item?.price ?? "-"} lei</Text>
+            <Text numberOfLines={2} style={S.desc}>
               {item?.description || ""}
             </Text>
           </View>
         </TouchableOpacity>
       );
     },
-    [navigation],
+    [navigation, S],
   );
 
-  // 🧠 state-uri clare
   if (!authReady) {
     return (
-      <View style={styles.center}>
+      <View style={S.center}>
         <ActivityIndicator />
-        <Text style={styles.muted}>Se încarcă sesiunea…</Text>
+        <Text style={S.muted}>Se încarcă sesiunea…</Text>
       </View>
     );
   }
 
   if (!userId) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.muted}>
-          Trebuie să fii logat ca să vezi favoritele.
-        </Text>
+      <View style={S.center}>
+        <Text style={S.muted}>Trebuie să fii logat ca să vezi favoritele.</Text>
       </View>
     );
   }
 
   return (
-    <View style={[styles.screen, { paddingTop: Math.max(insets.top, 10) }]}>
-      <View style={styles.topBar}>
-        <Pressable onPress={goBackSafe} style={styles.backBtn} hitSlop={12}>
-          <Text style={styles.backTxt}>←</Text>
+    <View style={[S.screen, { paddingTop: Math.max(insets.top, 10) }]}>
+      <View style={S.topBar}>
+        <Pressable onPress={goBackSafe} style={S.backBtn} hitSlop={12}>
+          <Text style={S.backTxt}>←</Text>
         </Pressable>
-        <Text style={styles.h1}>Favorite</Text>
+        <Text style={S.h1}>Favorite</Text>
       </View>
 
       {loading ? (
-        <View style={styles.center}>
+        <View style={S.center}>
           <ActivityIndicator />
-          <Text style={styles.muted}>Se încarcă…</Text>
+          <Text style={S.muted}>Se încarcă…</Text>
         </View>
       ) : (
         <FlatList
@@ -164,8 +172,8 @@ export default function FavoritesScreen({ navigation }) {
           renderItem={renderItem}
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 14) }}
           ListEmptyComponent={
-            <View style={styles.center}>
-              <Text style={styles.muted}>Nu ai favorite încă.</Text>
+            <View style={S.center}>
+              <Text style={S.muted}>Nu ai favorite încă.</Text>
             </View>
           }
         />
@@ -174,51 +182,67 @@ export default function FavoritesScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f4f6f8", paddingHorizontal: 14 },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 10,
-  },
-  backBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  backTxt: { fontSize: 22, fontWeight: "900" },
-  h1: { fontSize: 22, fontWeight: "900" },
+function makeStyles(tokens) {
+  const bg = pickTok(tokens, "bg", "#F4F6F8");
+  const card = pickTok(tokens, "card", "#FFFFFF");
+  const text = pickTok(tokens, "text", "#111827");
+  const muted = pickTok(tokens, "muted", "#6B7280");
+  const primary = pickTok(tokens, "primary", "#2563EB");
+  const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
+  const border = pickTok(tokens, "border", "rgba(0,0,0,0.08)");
+  const mediaBg = pickTok(tokens, "mediaBg", "#111827");
 
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 14,
-  },
-  muted: {
-    marginTop: 8,
-    color: "#6b7280",
-    fontWeight: "700",
-    textAlign: "center",
-  },
+  return StyleSheet.create({
+    screen: { flex: 1, backgroundColor: bg, paddingHorizontal: 14 },
 
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    overflow: "hidden",
-    marginBottom: 12,
-  },
-  imgBox: { height: 180, backgroundColor: "#111827" },
-  img: { width: "100%", height: "100%" },
-  noImg: { flex: 1, alignItems: "center", justifyContent: "center" },
-  noImgText: { color: "#cbd5e1", fontWeight: "900" },
+    topBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 10,
+    },
+    backBtn: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: card,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: border,
+    },
+    backTxt: { fontSize: 22, fontWeight: "900", color: text },
+    h1: { fontSize: 22, fontWeight: "900", color: text },
 
-  body: { padding: 12 },
-  title: { fontSize: 18, fontWeight: "900" },
-  price: { marginTop: 6, fontSize: 16, fontWeight: "900", color: "#2563eb" },
-  desc: { marginTop: 6, color: "#6b7280", fontWeight: "700" },
-});
+    center: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 14,
+    },
+    muted: {
+      marginTop: 8,
+      color: muted,
+      fontWeight: "700",
+      textAlign: "center",
+    },
+
+    card: {
+      backgroundColor: card,
+      borderRadius: 16,
+      overflow: "hidden",
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: border,
+    },
+    imgBox: { height: 180, backgroundColor: mediaBg },
+    img: { width: "100%", height: "100%" },
+    noImg: { flex: 1, alignItems: "center", justifyContent: "center" },
+    noImgText: { color: onPrimary, fontWeight: "900" },
+
+    body: { padding: 12 },
+    title: { fontSize: 18, fontWeight: "900", color: text },
+    price: { marginTop: 6, fontSize: 16, fontWeight: "900", color: primary },
+    desc: { marginTop: 6, color: muted, fontWeight: "700" },
+  });
+}

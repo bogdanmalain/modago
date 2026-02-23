@@ -1,11 +1,11 @@
 // src/screens/AddItemScreen.js
-// Ecran: Adaugă produs. Theme-aware (Light/Dark/Auto) folosind tokens.
-// Fix: fundal complet (nu rămâne alb sus), padding corect cu safe-area.
-// FIX: MOBILE images normalize -> max 1600px long side + real JPEG
 // ============================================
-// MODIFICARE (ACUM):
-// - După publicare: trimitem către Home createdItem (sau fallback createdItemId)
-//   ca Home să insereze local anunțul nou (fără logout/login, fără refetch la focus în mod normal)
+// MODIFICARE:
+// - După publicare: trimitem către Home createdItem + createdAt (trigger)
+//   ca Home să insereze local anunțul nou (fără logout/login).
+// - Dacă avem doar ID: trimitem createdItemId + createdAt (trigger).
+// NU se modifică:
+// - JPEG real pe mobile, max 1600px long side, theme-aware tokens.
 // ============================================
 
 import React, {
@@ -40,7 +40,6 @@ import { ThemeContext } from "../theme/ThemeProvider";
 const STORAGE_BUCKET = "items";
 const MAX_IMAGES = 6;
 
-// ✅ standard: max long side
 const MAX_LONG_SIDE = 1600;
 const JPEG_QUALITY = 0.85;
 
@@ -52,7 +51,7 @@ function pickTok(tokens, key, fallback) {
 function makeFilePath(userId) {
   const rand = Math.random().toString(36).slice(2);
   const ts = Date.now();
-  return `${userId}/${ts}_${rand}.jpg`; // ✅ mereu jpg (după conversie)
+  return `${userId}/${ts}_${rand}.jpg`;
 }
 
 function base64ToUint8Array(base64) {
@@ -63,17 +62,12 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
-/**
- * ✅ MOBILE: resize la max 1600px pe latura mare + JPEG real
- * - dacă nu avem dimensiuni, folosim resize doar pe width (Expo păstrează aspect)
- */
 async function normalizeToJpegMobile(uri, meta) {
   const w = Number(meta?.width) || null;
   const h = Number(meta?.height) || null;
 
-  let actions = [];
+  const actions = [];
 
-  // resize doar dacă e mai mare decât 1600 pe latura mare (nu upscalăm)
   if (w && h) {
     const longSide = Math.max(w, h);
     if (longSide > MAX_LONG_SIDE) {
@@ -81,7 +75,6 @@ async function normalizeToJpegMobile(uri, meta) {
       else actions.push({ resize: { height: MAX_LONG_SIDE } });
     }
   } else {
-    // fallback: încearcă să limitezi width
     actions.push({ resize: { width: MAX_LONG_SIDE } });
   }
 
@@ -102,7 +95,6 @@ async function uploadImageToSupabase({ uri, userId, meta }) {
 
   const path = makeFilePath(userId);
 
-  // ✅ WEB: blob direct
   if (Platform.OS === "web") {
     const res = await fetch(uri);
     if (!res.ok) throw new Error("Nu pot citi poza (fetch a eșuat).");
@@ -120,7 +112,6 @@ async function uploadImageToSupabase({ uri, userId, meta }) {
     return publicUrl;
   }
 
-  // ✅ MOBILE: resize + JPEG real
   const jpegUri = await normalizeToJpegMobile(uri, meta);
 
   const info = await FileSystem.getInfoAsync(jpegUri);
@@ -155,7 +146,6 @@ export default function AddItemScreen({ navigation }) {
   const [price, setPrice] = useState("");
   const [category, setCategory] = useState("");
 
-  // ✅ păstrăm și width/height dacă vine din picker (ajută la resize corect)
   const [localImages, setLocalImages] = useState([]); // [{ uri, width?, height? }]
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -242,7 +232,6 @@ export default function AddItemScreen({ navigation }) {
         return;
       }
 
-      // 1) upload poze -> publicUrls
       const urls = [];
       for (const img of localImages) {
         const url = await uploadImageToSupabase({
@@ -253,7 +242,6 @@ export default function AddItemScreen({ navigation }) {
         urls.push(url);
       }
 
-      // 2) insert item
       const payload = {
         title: title.trim(),
         description: description.trim(),
@@ -263,33 +251,34 @@ export default function AddItemScreen({ navigation }) {
         user_id: userId,
       };
 
-      // IMPORTANT:
-      // createItem ar trebui ideal să returneze row-ul creat.
-      // Noi tratăm ambele cazuri: returnează item / nu returnează nimic.
       const created = await createItem(payload);
 
       Alert.alert("Publicat", "Produsul a fost publicat cu succes.");
 
-      // reset UI
       setTitle("");
       setDescription("");
       setPrice("");
       setCategory("");
       setLocalImages([]);
 
-      // ✅ Trimite către Home item-ul creat (ideal) ca să apară instant
-      // Dacă createItem nu întoarce item, trimitem fallback createdItemId (dacă există)
       const createdRow =
         created && typeof created === "object" ? created : null;
       const createdId = createdRow?.id != null ? String(createdRow.id) : null;
 
+      const createdAt = Date.now(); // ✅ trigger pentru Home
+
       if (createdRow?.id) {
-        navigation.navigate(ROUTES.Home, { createdItem: createdRow });
+        navigation.navigate(ROUTES.Home, {
+          createdItem: createdRow,
+          createdAt,
+        });
       } else if (createdId) {
-        navigation.navigate(ROUTES.Home, { createdItemId: createdId });
+        navigation.navigate(ROUTES.Home, {
+          createdItemId: createdId,
+          createdAt,
+        });
       } else {
-        // fallback final: măcar ne întoarcem în Home (și tu poți da refresh manual)
-        navigation.navigate(ROUTES.Home);
+        navigation.navigate(ROUTES.Home, { createdAt });
       }
     } catch (e) {
       console.log("❌ publish error:", e);

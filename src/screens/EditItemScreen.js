@@ -1,6 +1,13 @@
 // src/screens/EditItemScreen.js
 // Editare anunț + upload poze + reordonare poze (iOS/Android). Theme-aware via tokens.
 // FIX: MOBILE images normalize -> max 1600px long side + real JPEG (0.85)
+// ============================================
+// MODIFICARE (ACUM):
+// - După SAVE: trimitem către Home updatedItem + updatedAt (trigger)
+//   ca Home să înlocuiască local item-ul (inclusiv ordinea pozelor) fără refetch/relog.
+// - După DELETE: trimitem către Home deletedItemId + deletedAt (trigger)
+//   ca Home să elimine local item-ul fără refetch.
+// ============================================
 
 import React, {
   useCallback,
@@ -35,7 +42,6 @@ import { ThemeContext } from "../theme/ThemeProvider";
 const STORAGE_BUCKET = "items";
 const MAX_IMAGES = 6;
 
-// ✅ standard: max long side
 const MAX_LONG_SIDE = 1600;
 const JPEG_QUALITY = 0.85;
 
@@ -47,7 +53,7 @@ function pickTok(tokens, key, fallback) {
 function makeFilePath(userId) {
   const rand = Math.random().toString(36).slice(2);
   const ts = Date.now();
-  return `${userId}/${ts}_${rand}.jpg`; // ✅ mereu jpg (după conversie)
+  return `${userId}/${ts}_${rand}.jpg`;
 }
 
 function base64ToUint8Array(base64) {
@@ -58,14 +64,11 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
-/**
- * ✅ MOBILE: resize la max 1600px pe latura mare + JPEG real (0.85)
- */
 async function normalizeToJpegMobile(uri, meta) {
   const w = Number(meta?.width) || null;
   const h = Number(meta?.height) || null;
 
-  let actions = [];
+  const actions = [];
 
   if (w && h) {
     const longSide = Math.max(w, h);
@@ -74,7 +77,6 @@ async function normalizeToJpegMobile(uri, meta) {
       else actions.push({ resize: { height: MAX_LONG_SIDE } });
     }
   } else {
-    // fallback
     actions.push({ resize: { width: MAX_LONG_SIDE } });
   }
 
@@ -83,8 +85,9 @@ async function normalizeToJpegMobile(uri, meta) {
     format: ImageManipulator.SaveFormat.JPEG,
   });
 
-  if (!result?.uri)
+  if (!result?.uri) {
     throw new Error("Nu am putut normaliza poza (JPEG/resize).");
+  }
   return result.uri;
 }
 
@@ -94,7 +97,6 @@ async function uploadImageToSupabase({ uri, userId, meta }) {
 
   const path = makeFilePath(userId);
 
-  // ✅ WEB: blob direct
   if (Platform.OS === "web") {
     const res = await fetch(uri);
     if (!res.ok) throw new Error("Nu pot citi poza (fetch a eșuat).");
@@ -112,7 +114,6 @@ async function uploadImageToSupabase({ uri, userId, meta }) {
     return publicUrl;
   }
 
-  // ✅ MOBILE: resize + JPEG real
   const jpegUri = await normalizeToJpegMobile(uri, meta);
 
   const info = await FileSystem.getInfoAsync(jpegUri);
@@ -189,6 +190,14 @@ export default function EditItemScreen({ navigation, route }) {
     if (navigation?.canGoBack?.()) navigation.goBack();
     else navigation.navigate(ROUTES.Home);
   }, [navigation]);
+
+  // ✅ după save/delete vrem Home instant cu item actualizat/șters
+  const goHomeWithUpdate = useCallback(
+    (params) => {
+      navigation.navigate(ROUTES.Home, params);
+    },
+    [navigation],
+  );
 
   const askMediaPermission = useCallback(async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -310,17 +319,42 @@ export default function EditItemScreen({ navigation, route }) {
         images: images,
       };
 
-      await updateItem(itemId, payload);
+      // IMPORTANT: updateItem poate să returneze row-ul (ideal) sau nimic.
+      const updated = await updateItem(itemId, payload);
+
+      // ✅ construim updatedRow sigur, ca să poată Home să înlocuiască local item-ul
+      const updatedRow =
+        updated && typeof updated === "object"
+          ? updated
+          : {
+              ...(passedItem || {}),
+              ...payload,
+              id: passedItem?.id ?? itemId,
+            };
 
       Alert.alert("Salvat", "Anunțul a fost actualizat.");
-      goBackSafe();
+
+      // ✅ TRIGGER către Home (fără refetch), inclusiv reorder poze
+      goHomeWithUpdate({
+        updatedItem: updatedRow,
+        updatedAt: Date.now(),
+      });
     } catch (e) {
       console.log("❌ updateItem error:", e);
       Alert.alert("Eroare", e?.message || "Nu am putut salva.");
     } finally {
       setSaving(false);
     }
-  }, [itemId, title, description, price, category, images, goBackSafe]);
+  }, [
+    itemId,
+    title,
+    description,
+    price,
+    category,
+    images,
+    passedItem,
+    goHomeWithUpdate,
+  ]);
 
   const onDeleteItem = useCallback(() => {
     if (!itemId) return;
@@ -335,7 +369,12 @@ export default function EditItemScreen({ navigation, route }) {
             setSaving(true);
             await deleteItemById(itemId);
             Alert.alert("Șters", "Anunțul a fost șters.");
-            goBackSafe();
+
+            // ✅ TRIGGER către Home să elimine local
+            goHomeWithUpdate({
+              deletedItemId: String(itemId),
+              deletedAt: Date.now(),
+            });
           } catch (e) {
             console.log("❌ deleteItem error:", e);
             Alert.alert("Eroare", e?.message || "Nu am putut șterge anunțul.");
@@ -345,7 +384,7 @@ export default function EditItemScreen({ navigation, route }) {
         },
       },
     ]);
-  }, [itemId, goBackSafe]);
+  }, [itemId, goHomeWithUpdate]);
 
   if (!passedItem) {
     return (
