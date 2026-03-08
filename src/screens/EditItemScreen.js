@@ -1,13 +1,10 @@
 // src/screens/EditItemScreen.js
-// Editare anunț + upload poze + reordonare poze (iOS/Android). Theme-aware via tokens.
-// FIX: MOBILE images normalize -> max 1600px long side + real JPEG (0.85)
-// ============================================
-// MODIFICARE (ACUM):
-// - După SAVE: trimitem către Home updatedItem + updatedAt (trigger)
-//   ca Home să înlocuiască local item-ul (inclusiv ordinea pozelor) fără refetch/relog.
-// - După DELETE: trimitem către Home deletedItemId + deletedAt (trigger)
-//   ca Home să elimine local item-ul fără refetch.
-// ============================================
+// COMPONENTĂ: EditItemScreen
+// MODIFICARE:
+// - back semantic: se întoarce explicit în ItemDetailsScreen
+// - nu mai folosește istoricul stack-ului pentru back
+// - păstrează HeaderBackButton reutilizabil
+// - restul logicii rămâne neschimbată
 
 import React, {
   useCallback,
@@ -22,7 +19,6 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  Pressable,
   Alert,
   Image,
   ScrollView,
@@ -38,10 +34,12 @@ import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import { updateItem, deleteItemById } from "../services/itemsService";
 import { ThemeContext } from "../theme/ThemeProvider";
+import HeaderBackButton, {
+  HEADER_BACK_SIZE,
+} from "../components/HeaderBackButton";
 
 const STORAGE_BUCKET = "items";
 const MAX_IMAGES = 6;
-
 const MAX_LONG_SIDE = 1600;
 const JPEG_QUALITY = 0.85;
 
@@ -187,11 +185,13 @@ export default function EditItemScreen({ navigation, route }) {
   }, []);
 
   const goBackSafe = useCallback(() => {
-    if (navigation?.canGoBack?.()) navigation.goBack();
-    else navigation.navigate(ROUTES.Home);
-  }, [navigation]);
+    if (passedItem) {
+      navigation.navigate(ROUTES.ItemDetails, { item: passedItem });
+      return;
+    }
+    navigation.navigate(ROUTES.Home);
+  }, [navigation, passedItem]);
 
-  // ✅ după save/delete vrem Home instant cu item actualizat/șters
   const goHomeWithUpdate = useCallback(
     (params) => {
       navigation.navigate(ROUTES.Home, params);
@@ -319,10 +319,8 @@ export default function EditItemScreen({ navigation, route }) {
         images: images,
       };
 
-      // IMPORTANT: updateItem poate să returneze row-ul (ideal) sau nimic.
       const updated = await updateItem(itemId, payload);
 
-      // ✅ construim updatedRow sigur, ca să poată Home să înlocuiască local item-ul
       const updatedRow =
         updated && typeof updated === "object"
           ? updated
@@ -334,7 +332,6 @@ export default function EditItemScreen({ navigation, route }) {
 
       Alert.alert("Salvat", "Anunțul a fost actualizat.");
 
-      // ✅ TRIGGER către Home (fără refetch), inclusiv reorder poze
       goHomeWithUpdate({
         updatedItem: updatedRow,
         updatedAt: Date.now(),
@@ -370,7 +367,6 @@ export default function EditItemScreen({ navigation, route }) {
             await deleteItemById(itemId);
             Alert.alert("Șters", "Anunțul a fost șters.");
 
-            // ✅ TRIGGER către Home să elimine local
             goHomeWithUpdate({
               deletedItemId: String(itemId),
               deletedAt: Date.now(),
@@ -389,17 +385,11 @@ export default function EditItemScreen({ navigation, route }) {
   if (!passedItem) {
     return (
       <View style={[S.screen, { paddingTop: insets.top + 12 }]}>
-        <Pressable
-          onPress={goBackSafe}
-          style={[S.backBtn, { top: insets.top + 10 }]}
-          hitSlop={12}
-        >
-          <Text style={S.backText}>←</Text>
-        </Pressable>
+        <HeaderBackButton onPress={goBackSafe} top={insets.top + 10} />
 
         <View style={S.center}>
           <Text style={S.h1}>Nu am primit anunțul.</Text>
-          <Text style={S.muted}>Întoarce-te și deschide din listă.</Text>
+          <Text style={S.mutedText}>Întoarce-te și deschide din listă.</Text>
         </View>
       </View>
     );
@@ -407,17 +397,11 @@ export default function EditItemScreen({ navigation, route }) {
 
   return (
     <View style={S.screen}>
-      <Pressable
-        onPress={goBackSafe}
-        style={[S.backBtn, { top: insets.top + 10 }]}
-        hitSlop={12}
-      >
-        <Text style={S.backText}>←</Text>
-      </Pressable>
+      <HeaderBackButton onPress={goBackSafe} top={insets.top + 10} />
 
       <ScrollView
         contentContainerStyle={{
-          paddingTop: insets.top + 64,
+          paddingTop: insets.top + 10 + HEADER_BACK_SIZE + 18,
           paddingBottom: Math.max(insets.bottom, 16) + 16,
           paddingHorizontal: 16,
         }}
@@ -550,31 +534,10 @@ function makeStyles(tokens) {
     pickTok(tokens, "accent", "#2563EB"),
   );
   const danger = pickTok(tokens, "danger", "#EF4444");
-  const shadowColor = pickTok(tokens, "shadowColor", "#000");
   const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
 
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: bg },
-
-    backBtn: {
-      position: "absolute",
-      left: 14,
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: card,
-      alignItems: "center",
-      justifyContent: "center",
-      zIndex: 999,
-      elevation: 10,
-      shadowColor,
-      shadowOpacity: 0.12,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 6 },
-      borderWidth: 1,
-      borderColor: border,
-    },
-    backText: { fontSize: 22, fontWeight: "900", color: text },
 
     placeholder: { color: muted },
 
@@ -675,7 +638,7 @@ function makeStyles(tokens) {
       padding: 16,
     },
     h1: { fontSize: 18, fontWeight: "900", color: text },
-    muted: {
+    mutedText: {
       marginTop: 8,
       color: muted,
       fontWeight: "700",

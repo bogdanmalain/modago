@@ -1,17 +1,10 @@
 /**
  * ================================
- * LOGINSCREEN – VARIANTA STABILĂ +15px
+ * LOGINSCREEN
  * ================================
- *
- * 🔒 FĂRĂ KeyboardAvoidingView
- * 🔒 FĂRĂ calcule pe tastatură
- * 🔒 FĂRĂ kbOpen / transform / flex-end
- *
- * ✅ Fără tremurat la Email ↔ Parolă
- * ✅ Card stabil
- * ✅ iOS safe
- *
- * 🔧 Doar standardizare butoane cu AppButton (brand teal via tokens.primary)
+ * ScrollView simplu + Animated.translateY
+ * -> AppState + blur/refocus = fix revenire din altă app
+ * -> eyeBtn centrat cu INPUT_HEIGHT
  */
 
 import React, {
@@ -31,7 +24,8 @@ import {
   Platform,
   ScrollView,
   Keyboard,
-  TouchableWithoutFeedback,
+  Animated,
+  AppState,
   TouchableOpacity,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -43,6 +37,7 @@ import AppButton from "../components/AppButton";
 
 export default function LoginScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
+  const emailRef = useRef(null);
   const passRef = useRef(null);
   const { tokens } = useContext(ThemeContext);
 
@@ -51,10 +46,66 @@ export default function LoginScreen({ navigation, route }) {
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const shiftY = useRef(new Animated.Value(0)).current;
+  const kbVisible = useRef(false);
+  const lastKbH = useRef(0);
+
   useEffect(() => {
     const incoming = route?.params?.email;
     if (incoming) setEmail(String(incoming));
   }, [route?.params?.email]);
+
+  useEffect(() => {
+    const showEvt =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const animateUp = (e) => {
+      kbVisible.current = true;
+      const kbH = e.endCoordinates.height;
+      lastKbH.current = kbH;
+      Animated.timing(shiftY, {
+        toValue: -(kbH / 3.5 + 25),
+        duration: Platform.OS === "ios" ? e.duration || 250 : 250,
+        useNativeDriver: true,
+      }).start();
+    };
+
+    const animateDown = (e) => {
+      kbVisible.current = false;
+      Animated.timing(shiftY, {
+        toValue: 0,
+        duration: Platform.OS === "ios" ? e.duration || 250 : 250,
+        useNativeDriver: true,
+      }).start();
+    };
+
+    const s1 = Keyboard.addListener(showEvt, animateUp);
+    const s2 = Keyboard.addListener(hideEvt, animateDown);
+
+    const appSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        setTimeout(() => {
+          if (kbVisible.current && lastKbH.current > 0) {
+            const focused = passRef.current?.isFocused?.() ? passRef : emailRef;
+            focused.current?.blur?.();
+            setTimeout(() => {
+              focused.current?.focus?.();
+            }, 50);
+          } else if (!kbVisible.current) {
+            shiftY.setValue(0);
+          }
+        }, 300);
+      }
+    });
+
+    return () => {
+      s1?.remove?.();
+      s2?.remove?.();
+      appSub?.remove?.();
+    };
+  }, [shiftY]);
 
   const notify = useCallback((title, message) => {
     if (Platform.OS === "web") {
@@ -93,8 +144,6 @@ export default function LoginScreen({ navigation, route }) {
         notify("Eroare", "Nu am primit sesiune.");
         return;
       }
-
-      // Redirectul este gestionat de AppNavigator
     } catch (err) {
       notify("Eroare", err?.message || "A apărut o eroare.");
     } finally {
@@ -105,24 +154,28 @@ export default function LoginScreen({ navigation, route }) {
   const styles = useMemo(() => makeStyles(tokens, insets), [tokens, insets]);
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <ScrollView
-        style={styles.page}
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+    <ScrollView
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      bounces={false}
+      scrollEnabled={false}
+    >
+      <Animated.View
+        style={[styles.cardWrap, { transform: [{ translateY: shiftY }] }]}
       >
         <View style={styles.card}>
           <Text style={styles.title}>Login</Text>
 
           <TextInput
+            ref={emailRef}
             value={email}
             onChangeText={setEmail}
             placeholder="Email"
             autoCapitalize="none"
             keyboardType="email-address"
             style={styles.input}
-            placeholderTextColor={tokens.subtext}
+            placeholderTextColor={tokens.subtext ?? tokens.muted}
             editable={!loading}
             returnKeyType="next"
             blurOnSubmit={false}
@@ -140,7 +193,7 @@ export default function LoginScreen({ navigation, route }) {
               placeholder="Parolă"
               secureTextEntry={!showPass}
               style={[styles.input, styles.passInput]}
-              placeholderTextColor={tokens.subtext}
+              placeholderTextColor={tokens.subtext ?? tokens.muted}
               editable={!loading}
               returnKeyType="done"
               onSubmitEditing={onLogin}
@@ -195,10 +248,17 @@ export default function LoginScreen({ navigation, route }) {
             textStyle={{ fontSize: 15 }}
           />
         </View>
-      </ScrollView>
-    </TouchableWithoutFeedback>
+      </Animated.View>
+    </ScrollView>
   );
 }
+
+/* ───────── helpers ───────── */
+
+const INPUT_VPAD = 12;
+const INPUT_FONT = 16;
+const INPUT_BORDER = 1;
+const INPUT_HEIGHT = INPUT_VPAD * 2 + INPUT_FONT + INPUT_BORDER * 2;
 
 function makeStyles(tokens, insets) {
   const cardBg =
@@ -206,18 +266,20 @@ function makeStyles(tokens, insets) {
       ? "rgba(19, 28, 46, 0.55)"
       : "rgba(255,255,255,0.85)";
 
+  const border = tokens?.border ?? "rgba(255,255,255,0.10)";
+
   return StyleSheet.create({
-    page: {
-      flex: 1,
+    scrollContent: {
+      flexGrow: 1,
       backgroundColor: tokens.bg,
+      justifyContent: "center",
+      paddingTop: Math.max(insets.top, 16) + 18,
+      paddingBottom: Math.max(insets.bottom, 16) + 22,
+      paddingHorizontal: 20,
     },
 
-    container: {
-      flexGrow: 1,
-      paddingTop: Math.max(insets.top, 16) + 32,
-      paddingBottom: Math.max(insets.bottom, 16) + 32,
-      paddingHorizontal: 20,
-      justifyContent: "center",
+    cardWrap: {
+      width: "100%",
     },
 
     card: {
@@ -228,12 +290,8 @@ function makeStyles(tokens, insets) {
       borderRadius: 22,
       padding: 22,
       borderWidth: 1,
-      borderColor: tokens.border,
-
-      // 🔧 ridicare card 15px (fix)
-      marginBottom: 140,
-
-      shadowColor: "#000",
+      borderColor: border,
+      shadowColor: tokens.shadowColor || "#000",
       shadowOpacity: 0.25,
       shadowRadius: 22,
       shadowOffset: { width: 0, height: 14 },
@@ -249,26 +307,34 @@ function makeStyles(tokens, insets) {
     },
 
     input: {
-      borderWidth: 1,
-      borderColor: tokens.border,
+      borderWidth: INPUT_BORDER,
+      borderColor: border,
       backgroundColor: "rgba(0,0,0,0.10)",
       borderRadius: 14,
       paddingHorizontal: 14,
-      paddingVertical: 12,
-      fontSize: 16,
+      paddingVertical: INPUT_VPAD,
+      fontSize: INPUT_FONT,
       color: tokens.text,
       marginTop: 10,
     },
 
-    passRow: { position: "relative", marginTop: 10 },
-    passInput: { paddingRight: 110 },
+    passRow: {
+      position: "relative",
+      marginTop: 10,
+    },
+
+    passInput: {
+      marginTop: 0,
+      paddingRight: 110,
+    },
 
     eyeBtn: {
       position: "absolute",
       right: 12,
       top: 0,
-      height: 48,
+      height: INPUT_HEIGHT,
       justifyContent: "center",
+      alignItems: "center",
     },
 
     eyeText: {

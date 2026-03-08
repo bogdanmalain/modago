@@ -1,11 +1,10 @@
 // src/components/ItemCardDarkProduct.js
-// =============================
-// MODIFICARE (DOAR ASTA):
-// - countPill este acum poziționat RELATIV la cercul inimii (right:-6, bottom:-6)
-// - badge-ul e ajustabil (ex: 7 / 12 / 99+), ca la Light
-// - IMPORTANT: NU există state local pentru isFav (folosește strict prop-ul isFav),
-//   ca să nu-ți mai dispară favoritele deja încărcate
-// =============================
+// COMPONENTĂ: ItemCardDarkProduct
+// MODIFICARE:
+// - scos complet afișajul pentru numărul de poze
+// - imagesCount rămâne eliminat din UI
+// - metaRow păstrează doar categoria
+// - restul logicii rămâne neschimbată
 
 import React, { useEffect, useMemo, useRef } from "react";
 import {
@@ -17,20 +16,28 @@ import {
   Animated,
 } from "react-native";
 
-const ICON = 44; // cercul inimii (dark)
+const ICON = 44;
 const BADGE_MIN = 22;
 
 export default function ItemCardDarkProduct({
   item,
   mainImage,
-  imagesCount = 0,
+  dots = null,
   isFav = false,
   favCount = 0,
   onPressCard,
   onToggleFav,
   GAP = 12,
+  tokens = {},
 }) {
-  // --- badge text (99+) + width dinamic ---
+  const primary = tokens?.primary ?? "#3fa9b5";
+  const card = tokens?.card ?? "#111A2E";
+  const text = tokens?.text ?? "#E5E7EB";
+  const muted = tokens?.muted ?? "#9CA3AF";
+  const border = tokens?.border ?? "rgba(255,255,255,0.10)";
+  const danger = tokens?.danger ?? "#F87171";
+  const onPrimary = tokens?.onPrimary ?? "#FFFFFF";
+
   const countText = favCount > 99 ? "99+" : String(favCount || 0);
 
   const dynamicBadgeWidth = useMemo(() => {
@@ -39,8 +46,8 @@ export default function ItemCardDarkProduct({
     return BADGE_MIN + 12;
   }, [countText]);
 
-  // --- pulse subtle când devine fav ---
   const pulse = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
     if (!isFav) return;
     pulse.setValue(1);
@@ -67,7 +74,12 @@ export default function ItemCardDarkProduct({
         { marginBottom: GAP },
       ]}
     >
-      <View style={styles.cardInner}>
+      <View
+        style={[
+          styles.cardInner,
+          { backgroundColor: card, borderColor: border },
+        ]}
+      >
         {/* IMAGE */}
         <View style={styles.imageWrap}>
           {mainImage ? (
@@ -77,63 +89,85 @@ export default function ItemCardDarkProduct({
               resizeMode="cover"
             />
           ) : (
-            <View style={styles.noImage}>
-              <Text
-                style={{ color: "rgba(255,255,255,0.8)", fontWeight: "800" }}
-              >
+            <View
+              style={[
+                styles.noImage,
+                { backgroundColor: "rgba(255,255,255,0.06)" },
+              ]}
+            >
+              <Text style={{ color: muted, fontWeight: "800" }}>
                 Fără imagine
               </Text>
             </View>
           )}
+          {dots}
         </View>
 
         {/* CONTENT */}
         <View style={styles.body}>
           <View style={styles.titleRow}>
-            <Text style={styles.title} numberOfLines={2}>
+            <Text style={[styles.title, { color: text }]} numberOfLines={2}>
               {item?.title}
             </Text>
 
-            {/* ❤️ FAVORITE (cerc + badge relativ la cerc) */}
             <View style={styles.favWrap}>
               <View style={{ position: "relative" }}>
                 <Pressable onPress={onToggleFav} hitSlop={8}>
                   <Animated.View
                     style={[
                       styles.favCircle,
-                      isFav ? styles.favCircleActive : styles.favCircleIdle,
+                      isFav
+                        ? styles.favCircleActive
+                        : [styles.favCircleIdle, { borderColor: border }],
                       { transform: [{ scale: pulse }] },
                     ]}
                   >
-                    {/* ghost heart când NU e fav */}
                     {!isFav ? (
-                      <Text style={styles.heartGhost}>♡</Text>
+                      <Text style={[styles.heartGhost, { color: muted }]}>
+                        ♡
+                      </Text>
                     ) : (
-                      <Text style={styles.heartSolid}>❤</Text>
+                      <Text style={[styles.heartSolid, { color: danger }]}>
+                        ❤
+                      </Text>
                     )}
                   </Animated.View>
                 </Pressable>
 
-                {/* badge doar când are sens (>=1) */}
                 {favCount > 0 && (
                   <View
-                    style={[styles.countPill, { minWidth: dynamicBadgeWidth }]}
+                    style={[
+                      styles.countPill,
+                      { minWidth: dynamicBadgeWidth, backgroundColor: primary },
+                    ]}
                   >
-                    <Text style={styles.countText}>{countText}</Text>
+                    <Text style={[styles.countText, { color: onPrimary }]}>
+                      {countText}
+                    </Text>
                   </View>
                 )}
               </View>
             </View>
           </View>
 
-          <Text style={styles.price}>{item?.price} lei</Text>
+          <Text style={[styles.price, { color: primary }]}>
+            {item?.price} lei
+          </Text>
 
           <View style={styles.metaRow}>
-            <View style={styles.catPill}>
-              <Text style={styles.catText}>{item?.category}</Text>
+            <View
+              style={[
+                styles.catPill,
+                {
+                  backgroundColor: `${primary}30`,
+                  borderColor: `${primary}50`,
+                },
+              ]}
+            >
+              <Text style={[styles.catText, { color: text }]}>
+                {item?.category}
+              </Text>
             </View>
-
-            <Text style={styles.photosText}>{imagesCount} poze</Text>
           </View>
         </View>
       </View>
@@ -143,45 +177,33 @@ export default function ItemCardDarkProduct({
 
 const styles = StyleSheet.create({
   cardOuter: { flex: 1 },
-
   cardInner: {
     borderRadius: 18,
     overflow: "hidden",
-    backgroundColor: "#0B1620",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
   },
-
   imageWrap: { width: "100%", aspectRatio: 1 },
   image: { width: "100%", height: "100%" },
-
   noImage: {
     flex: 1,
-    backgroundColor: "rgba(255,255,255,0.06)",
     alignItems: "center",
     justifyContent: "center",
   },
-
   body: { padding: 12 },
-
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   title: {
     flex: 1,
     fontSize: 16,
     fontWeight: "900",
-    color: "#EAF2F7",
     paddingRight: 10,
   },
-
   favWrap: {
     alignItems: "center",
     justifyContent: "center",
   },
-
   favCircle: {
     width: ICON,
     height: ICON,
@@ -189,34 +211,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  // idle = “OLX-ish ghost heart” (fără alb, fără count special)
   favCircleIdle: {
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
   },
-
-  // active = cerc alb + inimă roșie
   favCircleActive: {
     backgroundColor: "rgba(255,255,255,0.95)",
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.35)",
   },
-
-  heartGhost: {
-    fontSize: 18,
-    color: "rgba(255,255,255,0.75)",
-    fontWeight: "900",
-  },
-
-  heartSolid: {
-    fontSize: 18,
-    color: "#EF4444",
-    fontWeight: "900",
-  },
-
-  // 🔥 badge relativ la cercul inimii (ca la Light)
+  heartGhost: { fontSize: 18, fontWeight: "900" },
+  heartSolid: { fontSize: 18, fontWeight: "900" },
   countPill: {
     position: "absolute",
     right: -6,
@@ -224,51 +229,24 @@ const styles = StyleSheet.create({
     height: BADGE_MIN,
     paddingHorizontal: 6,
     borderRadius: 999,
-    backgroundColor: "#2CA6A4",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.95)",
     zIndex: 10,
   },
-
-  countText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-
-  price: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#2CA6A4",
-  },
-
+  countText: { fontSize: 12, fontWeight: "900" },
+  price: { marginTop: 8, fontSize: 18, fontWeight: "900" },
   metaRow: {
     marginTop: 10,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
   },
-
   catPill: {
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 999,
-    backgroundColor: "rgba(44,166,164,0.18)",
     borderWidth: 1,
-    borderColor: "rgba(44,166,164,0.30)",
   },
-
-  catText: {
-    color: "#CFEFEE",
-    fontWeight: "800",
-    fontSize: 13,
-  },
-
-  photosText: {
-    color: "rgba(255,255,255,0.60)",
-    fontWeight: "800",
-  },
+  catText: { fontWeight: "800", fontSize: 13 },
 });

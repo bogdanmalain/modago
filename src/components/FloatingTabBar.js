@@ -1,5 +1,12 @@
 // src/components/FloatingTabBar.js
-// FloatingTabBar (glass) – active pill indicator (boosted for LIGHT)
+// COMPONENTĂ: FloatingTabBar
+// MODIFICARE:
+// - fix crash când state este undefined la primul render
+// - tabbar-ul se ascunde pe:
+//   • ItemDetails
+//   • AddItem
+//   • EditItem
+// - restul comportamentului rămâne neschimbat
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
 import {
@@ -15,6 +22,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { ThemeContext } from "../theme/ThemeProvider";
 import { supabase } from "../supabaseClient";
+import { ROUTES } from "../navigation/routes";
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -31,10 +39,6 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
   const insets = useSafeAreaInsets();
   const { tokens, scheme } = useContext(ThemeContext);
   const isDark = scheme === "dark";
-
-  // ✅ dacă ești pe ImageViewer, ascundem complet tabbar-ul
-  const activeRouteName = state?.routes?.[state?.index]?.name || "";
-  if (activeRouteName === "ImageViewer") return null;
 
   const [profileInitial, setProfileInitial] = useState("👤");
 
@@ -66,41 +70,35 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
     [tokens, isDark, insets.bottom],
   );
 
+  const routes = Array.isArray(state?.routes) ? state.routes : [];
+  const activeIndex = typeof state?.index === "number" ? state.index : 0;
+  const activeRouteName = routes?.[activeIndex]?.name || "";
+
+  // Ascunde tabbar-ul pe ecranele full-screen / secundare unde nu o vrem
+  const hiddenRoutes = [
+    ROUTES.ImageViewer,
+    ROUTES.ItemDetails,
+    ROUTES.AddItem,
+    ROUTES.EditItem,
+  ];
+  if (hiddenRoutes.includes(activeRouteName)) return null;
+
   const wanted = ["Home", "Search", "AddItem", "Inbox", "Profile"];
-  const routes = state.routes;
   const visibleRoutes = routes.filter((r) => wanted.includes(r.name));
   const orderedRoutes = wanted
     .map((name) => visibleRoutes.find((r) => r.name === name))
     .filter(Boolean);
 
-  return (
-    <View pointerEvents="box-none" style={S.wrap}>
-      <View style={S.shadow} pointerEvents="none" />
-
-      {Platform.OS === "web" ? (
-        <View style={S.barWeb}>{renderButtons()}</View>
-      ) : (
-        <BlurView
-          tint={isDark ? "dark" : "light"}
-          intensity={isDark ? 26 : 6}
-          reducedTransparencyFallbackColor="transparent"
-          style={S.bar}
-        >
-          <View pointerEvents="none" style={S.glassOverlay} />
-          {renderButtons()}
-        </BlurView>
-      )}
-    </View>
-  );
+  if (orderedRoutes.length === 0) return null;
 
   function renderButtons() {
     return (
       <View style={S.row}>
         {orderedRoutes.map((route) => {
-          const index = state.routes.findIndex((r) => r.key === route.key);
-          const isFocused = state.index === index;
+          const index = routes.findIndex((r) => r.key === route.key);
+          const isFocused = activeIndex === index;
 
-          const { options } = descriptors[route.key] || {};
+          const { options } = descriptors?.[route.key] || {};
           const label = options?.tabBarLabel ?? options?.title ?? route.name;
 
           const onPress = () => {
@@ -109,6 +107,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
               target: route.key,
               canPreventDefault: true,
             });
+
             if (!isFocused && !event.defaultPrevented) {
               navigation.navigate(route.name);
             }
@@ -201,6 +200,26 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
       </View>
     );
   }
+
+  return (
+    <View pointerEvents="box-none" style={S.wrap}>
+      <View style={S.shadow} pointerEvents="none" />
+
+      {Platform.OS === "web" ? (
+        <View style={S.barWeb}>{renderButtons()}</View>
+      ) : (
+        <BlurView
+          tint={isDark ? "dark" : "light"}
+          intensity={isDark ? 26 : 6}
+          reducedTransparencyFallbackColor="transparent"
+          style={S.bar}
+        >
+          <View pointerEvents="none" style={S.glassOverlay} />
+          {renderButtons()}
+        </BlurView>
+      )}
+    </View>
+  );
 }
 
 function makeStyles(tokens, isDark, bottomInset) {
@@ -231,7 +250,6 @@ function makeStyles(tokens, isDark, bottomInset) {
       bottom: 0,
       alignItems: "center",
     },
-
     shadow: {
       position: "absolute",
       left: 10,
@@ -245,7 +263,6 @@ function makeStyles(tokens, isDark, bottomInset) {
       shadowOffset: { width: 0, height: 10 },
       elevation: 8,
     },
-
     bar: {
       position: "absolute",
       left: 10,
@@ -258,12 +275,10 @@ function makeStyles(tokens, isDark, bottomInset) {
       borderColor: border,
       backgroundColor: "transparent",
     },
-
     glassOverlay: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: overlay,
     },
-
     barWeb: {
       position: "absolute",
       left: 10,
@@ -275,7 +290,6 @@ function makeStyles(tokens, isDark, bottomInset) {
       borderWidth: 1,
       borderColor: border,
     },
-
     row: {
       flex: 1,
       flexDirection: "row",
@@ -283,13 +297,11 @@ function makeStyles(tokens, isDark, bottomInset) {
       justifyContent: "space-between",
       paddingHorizontal: 14,
     },
-
     item: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
     },
-
     pill: {
       width: "100%",
       alignItems: "center",
@@ -303,18 +315,13 @@ function makeStyles(tokens, isDark, bottomInset) {
       borderColor: pillBorder,
     },
     pillOff: { backgroundColor: "transparent" },
-
     iconRow: { height: 24, justifyContent: "center" },
-
     label: { marginTop: 6, fontSize: 12, fontWeight: "800" },
     labelOn: { color: labelOn },
     labelOff: { color: labelOff },
-
     iconOn: { color: iconOn },
     iconOff: { color: iconOff },
-
     centerSlot: { width: 88, alignItems: "center" },
-
     plusBtn: {
       width: 54,
       height: 54,
@@ -323,7 +330,6 @@ function makeStyles(tokens, isDark, bottomInset) {
       alignItems: "center",
       justifyContent: "center",
     },
-
     avatar: {
       width: 28,
       height: 28,
@@ -337,10 +343,8 @@ function makeStyles(tokens, isDark, bottomInset) {
     avatarOn: {
       backgroundColor: isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.07)",
     },
-
     avatarText: { fontSize: 14, fontWeight: "900", color: muted },
     avatarTextOn: { color: text },
-
     dot: {
       position: "absolute",
       right: -2,

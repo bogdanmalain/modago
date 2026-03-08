@@ -1,4 +1,15 @@
-// src/screens/ProfileScreen.js
+/**
+ * ================================
+ * PROFILESCREEN
+ * ================================
+ * Review aplicat:
+ * -> sessionReady în loc de authReady (consistență cu restul app-ului)
+ * -> scos apelul dublu loadCounts (focus listener e suficient)
+ * -> scos `scheme` nefolosit din destructurare
+ * -> ActivityIndicator theme-aware
+ * -> ensureLogged simplu (fără navigate la login — gestionat de AppNavigator)
+ * -> simplificat countsText
+ */
 
 import React, {
   useCallback,
@@ -13,7 +24,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -30,12 +40,12 @@ function pickTok(tokens, key, fallback) {
 
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { tokens, scheme } = useContext(ThemeContext);
+  const { tokens } = useContext(ThemeContext);
 
   const S = useMemo(() => makeStyles(tokens), [tokens]);
 
   const [session, setSession] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
 
   const user = session?.user || null;
 
@@ -43,13 +53,14 @@ export default function ProfileScreen({ navigation }) {
   const [myItemsCount, setMyItemsCount] = useState(null);
   const [favCount, setFavCount] = useState(null);
 
+  /* ── sesiune ── */
   useEffect(() => {
     let sub;
 
     (async () => {
       const { data } = await supabase.auth.getSession();
       setSession(data?.session ?? null);
-      setAuthReady(true);
+      setSessionReady(true);
 
       const { data: listener } = supabase.auth.onAuthStateChange((_e, sess) => {
         setSession(sess ?? null);
@@ -61,18 +72,20 @@ export default function ProfileScreen({ navigation }) {
     return () => sub?.unsubscribe?.();
   }, []);
 
+  /* ── display ── */
   const displayName = useMemo(() => {
-    const email = user?.email || "";
-    if (!email) return "Vizitator";
-    return email.split("@")[0];
+    const e = user?.email || "";
+    if (!e) return "Vizitator";
+    return e.split("@")[0];
   }, [user?.email]);
 
   const email = user?.email || "";
 
+  /* ── counts ── */
   const loadCounts = useCallback(async () => {
     const uid = user?.id;
 
-    if (!authReady) {
+    if (!sessionReady) {
       setLoadingCounts(true);
       return;
     }
@@ -100,32 +113,31 @@ export default function ProfileScreen({ navigation }) {
     } finally {
       setLoadingCounts(false);
     }
-  }, [user?.id, authReady]);
+  }, [user?.id, sessionReady]);
 
+  /* focus listener se declanșează și la mount — nu mai apelăm loadCounts() separat */
   useEffect(() => {
     const unsub = navigation.addListener("focus", loadCounts);
-    loadCounts();
     return unsub;
   }, [navigation, loadCounts]);
 
-  const ensureLogged = useCallback(() => {
-    if (!authReady) return false;
-    if (!user) return false;
-    return true;
-  }, [authReady, user]);
-
+  /* ── navigare ── */
   const goMyItems = useCallback(() => {
-    if (!ensureLogged()) return;
+    if (!sessionReady || !user) return;
     navigation.navigate("TabsRoot", { screen: ROUTES.MyItems });
-  }, [ensureLogged, navigation]);
+  }, [sessionReady, user, navigation]);
 
   const goFavorites = useCallback(() => {
-    if (!ensureLogged()) return;
+    if (!sessionReady || !user) return;
     navigation.navigate("TabsRoot", { screen: ROUTES.Favorites });
-  }, [ensureLogged, navigation]);
+  }, [sessionReady, user, navigation]);
 
   const goThemeSettings = useCallback(() => {
     navigation.navigate("TabsRoot", { screen: ROUTES.ThemeSettings });
+  }, [navigation]);
+
+  const goSell = useCallback(() => {
+    navigation.navigate(ROUTES.AddItem);
   }, [navigation]);
 
   const onLogout = useCallback(async () => {
@@ -136,12 +148,8 @@ export default function ProfileScreen({ navigation }) {
     }
   }, []);
 
-  const goSell = useCallback(() => {
-    navigation.navigate(ROUTES.AddItem);
-  }, [navigation]);
-
-  const countsTextMyItems = loadingCounts ? "—" : String(myItemsCount ?? "—");
-  const countsTextFavs = loadingCounts ? "—" : String(favCount ?? "—");
+  /* ── render helpers ── */
+  const formatCount = (val) => (loadingCounts ? "—" : String(val ?? "—"));
 
   return (
     <ScrollView
@@ -184,7 +192,7 @@ export default function ProfileScreen({ navigation }) {
           activeOpacity={0.9}
           onPress={goMyItems}
         >
-          <Text style={S.statNum}>{countsTextMyItems}</Text>
+          <Text style={S.statNum}>{formatCount(myItemsCount)}</Text>
           <Text style={S.statLabel}>Anunțurile mele</Text>
         </TouchableOpacity>
 
@@ -193,7 +201,7 @@ export default function ProfileScreen({ navigation }) {
           activeOpacity={0.9}
           onPress={goFavorites}
         >
-          <Text style={S.statNum}>{countsTextFavs}</Text>
+          <Text style={S.statNum}>{formatCount(favCount)}</Text>
           <Text style={S.statLabel}>Favorite</Text>
         </TouchableOpacity>
 
@@ -243,12 +251,6 @@ export default function ProfileScreen({ navigation }) {
       >
         <Text style={S.logoutText}>Logout</Text>
       </TouchableOpacity>
-
-      {loadingCounts && authReady && user ? (
-        <View style={{ marginTop: 10, alignItems: "center" }}>
-          <ActivityIndicator />
-        </View>
-      ) : null}
     </ScrollView>
   );
 }

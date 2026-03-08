@@ -1,5 +1,12 @@
 // src/services/itemsService.js
-// Responsabilitate: CRUD pe tabelul items, nimic altceva
+// COMPONENTĂ: itemsService
+// ROL:
+// - CRUD pe tabelul items
+// MODIFICARE:
+// - adăugate funcții pentru recomandări în ItemDetails:
+//   • fetchMoreFromSeller
+//   • fetchSimilarItems
+// - restul logicii existente rămâne neschimbată
 
 import { supabase } from "../supabaseClient";
 import { removeFavoritesByItem } from "./favoritesService";
@@ -40,6 +47,56 @@ export async function fetchItemById(itemId) {
 
   if (error) throw error;
   return data;
+}
+
+// ─── Recommenders pentru ItemDetails ────────────────────────────────────────
+
+export async function fetchMoreFromSeller({
+  userId,
+  excludeItemId,
+  limit = 6,
+}) {
+  if (!userId) return [];
+
+  let query = supabase
+    .from("items")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit + 1);
+
+  if (excludeItemId != null) {
+    query = query.neq("id", String(excludeItemId));
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return (data ?? []).slice(0, limit);
+}
+
+export async function fetchSimilarItems({
+  category,
+  excludeItemId,
+  limit = 6,
+}) {
+  if (!category) return [];
+
+  let query = supabase
+    .from("items")
+    .select("*")
+    .eq("category", category)
+    .order("created_at", { ascending: false })
+    .limit(limit + 1);
+
+  if (excludeItemId != null) {
+    query = query.neq("id", String(excludeItemId));
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return (data ?? []).slice(0, limit);
 }
 
 // ─── Write ───────────────────────────────────────────────────────────────────

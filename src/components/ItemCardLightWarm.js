@@ -1,12 +1,14 @@
-// =============================
+// src/components/ItemCardLightWarm.js
+// COMPONENTĂ: ItemCardLightWarm
 // MODIFICARE:
-// - countPill este acum poziționat RELATIV la cercul inimii
-// - NU mai este legat de card
-// - Inima rămâne identică
-// =============================
+// - scos complet afișajul pentru numărul de poze
+// - imagesCount rămâne eliminat din UI
+// - metaRow păstrează doar categoria
+// - restul logicii rămâne neschimbată
 
-import React from "react";
+import React, { useContext, useMemo } from "react";
 import { View, Text, StyleSheet, Image, Pressable } from "react-native";
+import { ThemeContext } from "../theme/ThemeProvider";
 
 const ICON_SIZE = 40;
 const BADGE_MIN = 22;
@@ -14,21 +16,35 @@ const BADGE_MIN = 22;
 export default function ItemCardLightWarm({
   item,
   mainImage,
-  imagesCount = 0,
+  dots = null,
   isFav = false,
   favCount = 0,
   onPressCard,
   onToggleFav,
   GAP = 12,
 }) {
+  const { tokens } = useContext(ThemeContext);
+
+  const primary = tokens?.primary ?? "#3fa9b5";
+  const card = tokens?.card ?? "#FFFFFF";
+  const text = tokens?.text ?? "#111827";
+  const muted = tokens?.muted ?? "#6B7280";
+  const border = tokens?.border ?? "rgba(0,0,0,0.08)";
+  const danger = tokens?.danger ?? "#EF4444";
+  const onPrimary = tokens?.onPrimary ?? "#FFFFFF";
+  const bg = tokens?.bg ?? "#F3F4F6";
+
   const countText = favCount > 99 ? "99+" : String(favCount || 0);
 
-  const dynamicBadgeWidth =
-    countText.length === 1
-      ? BADGE_MIN
-      : countText.length === 2
-        ? BADGE_MIN + 6
-        : BADGE_MIN + 12;
+  const dynamicBadgeWidth = useMemo(
+    () =>
+      countText.length === 1
+        ? BADGE_MIN
+        : countText.length === 2
+          ? BADGE_MIN + 6
+          : BADGE_MIN + 12,
+    [countText],
+  );
 
   return (
     <Pressable
@@ -39,7 +55,12 @@ export default function ItemCardLightWarm({
         { marginBottom: GAP },
       ]}
     >
-      <View style={styles.cardInner}>
+      <View
+        style={[
+          styles.cardInner,
+          { backgroundColor: card, borderColor: border },
+        ]}
+      >
         {/* IMAGE */}
         <View style={styles.imageWrap}>
           {mainImage ? (
@@ -49,46 +70,78 @@ export default function ItemCardLightWarm({
               resizeMode="cover"
             />
           ) : (
-            <View style={styles.noImage}>
-              <Text style={{ fontWeight: "700" }}>Fără imagine</Text>
+            <View style={[styles.noImage, { backgroundColor: bg }]}>
+              <Text style={{ fontWeight: "700", color: muted }}>
+                Fără imagine
+              </Text>
             </View>
           )}
+          {dots}
         </View>
 
         {/* CONTENT */}
-        <View style={styles.contentRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title} numberOfLines={2}>
+        <View style={styles.body}>
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, { color: text }]} numberOfLines={2}>
               {item?.title}
             </Text>
 
-            <Text style={styles.price}>{item?.price} lei</Text>
+            <View style={styles.favWrap}>
+              <View style={{ position: "relative" }}>
+                <Pressable
+                  onPress={onToggleFav}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    pressed && { transform: [{ scale: 0.95 }] },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.favCircle,
+                      { backgroundColor: bg, borderColor: border },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.heart, { color: isFav ? danger : muted }]}
+                    >
+                      {isFav ? "❤" : "♡"}
+                    </Text>
+                  </View>
+                </Pressable>
 
-            <Text style={styles.meta}>{item?.category}</Text>
-
-            <Text style={styles.meta}>{imagesCount} poze</Text>
+                {favCount > 0 && (
+                  <View
+                    style={[
+                      styles.countPill,
+                      { minWidth: dynamicBadgeWidth, backgroundColor: primary },
+                    ]}
+                  >
+                    <Text style={[styles.countText, { color: onPrimary }]}>
+                      {countText}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
           </View>
 
-          {/* ❤️ FAVORITE */}
-          <View style={styles.favWrap}>
-            <View style={{ position: "relative" }}>
-              <Pressable
-                onPress={onToggleFav}
-                style={({ pressed }) => [
-                  styles.favCircle,
-                  pressed && { transform: [{ scale: 0.95 }] },
-                ]}
-              >
-                <Text style={styles.heart}>{isFav ? "❤" : "♡"}</Text>
-              </Pressable>
+          <Text style={[styles.price, { color: primary }]}>
+            {item?.price} lei
+          </Text>
 
-              {favCount > 0 && (
-                <View
-                  style={[styles.countPill, { minWidth: dynamicBadgeWidth }]}
-                >
-                  <Text style={styles.countText}>{countText}</Text>
-                </View>
-              )}
+          <View style={styles.metaRow}>
+            <View
+              style={[
+                styles.catPill,
+                {
+                  backgroundColor: `${primary}22`,
+                  borderColor: `${primary}44`,
+                },
+              ]}
+            >
+              <Text style={[styles.catText, { color: text }]}>
+                {item?.category}
+              </Text>
             </View>
           </View>
         </View>
@@ -98,83 +151,43 @@ export default function ItemCardLightWarm({
 }
 
 const styles = StyleSheet.create({
-  cardOuter: {
-    flex: 1,
-  },
-
+  cardOuter: { flex: 1 },
   cardInner: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.06)",
   },
-
-  imageWrap: {
-    width: "100%",
-    aspectRatio: 1,
-  },
-
-  image: {
-    width: "100%",
-    height: "100%",
-  },
-
+  imageWrap: { width: "100%", aspectRatio: 1 },
+  image: { width: "100%", height: "100%" },
   noImage: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#eee",
   },
-
-  contentRow: {
-    padding: 12,
+  body: { padding: 12 },
+  titleRow: {
     flexDirection: "row",
+    alignItems: "center",
   },
-
   title: {
+    flex: 1,
     fontSize: 16,
     fontWeight: "900",
-    color: "#111",
+    paddingRight: 10,
   },
-
-  price: {
-    marginTop: 6,
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#2CA6A4",
-  },
-
-  meta: {
-    marginTop: 4,
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#6B7280",
-  },
-
   favWrap: {
-    marginLeft: 10,
     alignItems: "center",
-    justifyContent: "flex-start",
+    justifyContent: "center",
   },
-
   favCircle: {
     width: ICON_SIZE,
     height: ICON_SIZE,
     borderRadius: ICON_SIZE / 2,
-    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.08)",
   },
-
-  heart: {
-    fontSize: 18,
-    color: "#EF4444",
-  },
-
-  // 🔥 acum e legat de cerc
+  heart: { fontSize: 18 },
   countPill: {
     position: "absolute",
     right: -6,
@@ -182,16 +195,27 @@ const styles = StyleSheet.create({
     height: BADGE_MIN,
     paddingHorizontal: 6,
     borderRadius: 999,
-    backgroundColor: "#2CA6A4",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "#fff",
   },
-
-  countText: {
-    color: "#fff",
-    fontSize: 12,
+  countText: { fontSize: 12, fontWeight: "900" },
+  price: {
+    marginTop: 8,
+    fontSize: 18,
     fontWeight: "900",
   },
+  metaRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  catPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  catText: { fontWeight: "800", fontSize: 13 },
 });

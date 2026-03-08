@@ -1,9 +1,9 @@
 // src/screens/HomeScreen.js
-// MODIFICARE: importurile pentru favorite mutate din itemsService în favoritesService
-// fetchFavoritesCounts -> fetchFavoritesCountsForItems
-// fetchMyFavoritesMap -> fetchFavoritesMapForUser
-// toggleFavorite -> favoritesService
-// fetchItems rămâne în itemsService
+// COMPONENTĂ: HomeScreen
+// MODIFICARE:
+// - scos complet imagesCount din cardurile de Home
+// - nu se mai trimite numărul de poze nici la light, nici la dark
+// - restul logicii rămâne neschimbată
 
 import React, {
   useCallback,
@@ -454,7 +454,6 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
         <ItemCardLightWarm
           item={item}
           mainImage={mainImage}
-          imagesCount={images.length}
           dots={dots}
           isFav={isFav}
           favCount={count}

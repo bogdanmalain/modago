@@ -1,7 +1,10 @@
 // src/screens/ThemeSettingsScreen.js
-// Ecran setări temă (Auto / Light / Dark) – theme-aware + SafeArea corect
-// FIX: buton Back în ecran (sus-stânga) pentru cazul în care nu ai header de Stack
-// FIX: paddingTop/paddingBottom corect + spațiu pentru FloatingTabBar
+// COMPONENTĂ: ThemeSettingsScreen
+// MODIFICARE:
+// - back merge explicit în Profile, nu pe istoricul stack-ului
+// - păstrează HeaderBackButton reutilizabil
+// - păstrează layout-ul actual al ecranului
+// - restul logicii rămâne neschimbată
 
 import React, { useContext, useMemo, useCallback } from "react";
 import {
@@ -14,6 +17,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { ThemeContext } from "../theme/ThemeProvider";
+import { ROUTES } from "../navigation/routes";
+import HeaderBackButton, {
+  HEADER_BACK_SIZE,
+} from "../components/HeaderBackButton";
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -39,18 +46,12 @@ export default function ThemeSettingsScreen() {
   const S = useMemo(() => makeStyles(tokens, insets), [tokens, insets]);
 
   const onBack = useCallback(() => {
-    // dacă are istoric -> goBack, altfel du-te la un ecran “safe”
-    if (navigation.canGoBack?.()) navigation.goBack();
-    else navigation.navigate("Profile");
+    navigation.navigate("TabsRoot", { screen: ROUTES.Profile });
   }, [navigation]);
 
   return (
     <View style={S.screen}>
-      {/* Back button (în ecran) */}
-      <TouchableOpacity onPress={onBack} activeOpacity={0.85} style={S.backBtn}>
-        <Text style={S.backIcon}>‹</Text>
-        <Text style={S.backText}>Înapoi</Text>
-      </TouchableOpacity>
+      <HeaderBackButton onPress={onBack} top={insets.top + 10} />
 
       <ScrollView
         style={S.scroll}
@@ -136,43 +137,17 @@ function makeStyles(tokens, insets) {
   );
   const shadowColor = pickTok(tokens, "shadowColor", "#000");
 
-  // spațiu sus: status bar + buton back
-  const topPad = insets.top + 16 + 44;
+  const topPad = insets.top + 10 + HEADER_BACK_SIZE + 18;
 
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: bg },
     scroll: { flex: 1, backgroundColor: bg },
 
     content: {
-      paddingTop: topPad, // ✅ coboară conținutul sub butonul back
+      paddingTop: topPad,
       paddingBottom: Math.max(insets.bottom, 16) + FLOATING_TABBAR_SAFE_SPACE,
       paddingHorizontal: 16,
     },
-
-    // Back
-    backBtn: {
-      position: "absolute",
-      left: 12,
-      top: insets.top + 10,
-      height: 36,
-      paddingHorizontal: 12,
-      borderRadius: 18,
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: card,
-      borderWidth: 1,
-      borderColor: border,
-      zIndex: 50,
-    },
-    backIcon: {
-      fontSize: 26,
-      lineHeight: 26,
-      marginRight: 6,
-      color: text,
-      fontWeight: "900",
-      marginTop: -2,
-    },
-    backText: { fontSize: 14, fontWeight: "900", color: text },
 
     infoRow: {
       flexDirection: "row",
@@ -181,8 +156,19 @@ function makeStyles(tokens, insets) {
       marginBottom: 12,
       paddingHorizontal: 2,
     },
-    infoLabel: { fontSize: 16, fontWeight: "800", color: muted },
-    infoValue: { fontSize: 18, fontWeight: "900", color: text },
+
+    infoLabel: {
+      fontSize: 16,
+      fontWeight: "800",
+      color: muted,
+    },
+
+    infoValue: {
+      fontSize: 18,
+      fontWeight: "900",
+      color: text,
+      textTransform: "lowercase",
+    },
 
     rowCard: {
       backgroundColor: card,
@@ -194,10 +180,10 @@ function makeStyles(tokens, insets) {
       flexDirection: "row",
       alignItems: "center",
       shadowColor,
-      shadowOpacity: 0.12,
-      shadowRadius: 16,
-      shadowOffset: { width: 0, height: 10 },
-      elevation: 2,
+      shadowOpacity: 0.06,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 1,
     },
 
     rowSelected: {
@@ -211,6 +197,7 @@ function makeStyles(tokens, insets) {
       fontWeight: "900",
       color: text,
     },
+
     rowSub: {
       marginTop: 8,
       fontSize: 14,
@@ -230,9 +217,15 @@ function makeStyles(tokens, insets) {
       borderColor: border,
       backgroundColor: card,
     },
+
     pillSelected: { borderColor: primary },
     pillIdle: {},
-    pillText: { fontWeight: "900", fontSize: 14 },
+
+    pillText: {
+      fontWeight: "900",
+      fontSize: 14,
+    },
+
     pillTextSelected: { color: primary },
     pillTextIdle: { color: muted },
 

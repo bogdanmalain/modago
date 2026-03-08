@@ -1,8 +1,11 @@
 // src/screens/ItemDetailsScreen.js
-// MODIFICARE: fix isFav nu se afișa corect la prima intrare pe produs
-// Cauza: loadFavInfo se apela înainte ca sesiunea să fie încărcată (userId = null)
-// Fix: folosim un state sentinel "ready" ca să știm când sesiunea e gata
-// și declanșăm loadFavInfo doar după ce avem răspunsul de la supabase.auth.getSession
+// COMPONENTĂ: ItemDetailsScreen
+// MODIFICARE:
+// - scos complet caruselul de thumbnails de sub imagine
+// - păstrat swipe pe hero
+// - păstrate dots pe imagine
+// - favorite rămâne singur sub hero, fără să se mai încalce cu pozele
+// - restul logicii rămâne neschimbată
 
 import React, {
   useCallback,
@@ -23,25 +26,33 @@ import {
   Alert,
   Dimensions,
   Animated,
+  Share,
+  Modal,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
-import { deleteItemById } from "../services/itemsService";
+import {
+  deleteItemById,
+  fetchMoreFromSeller,
+  fetchSimilarItems,
+} from "../services/itemsService";
 import {
   fetchFavoritesCountsForItems,
   fetchFavoritesMapForUser,
   toggleFavorite,
 } from "../services/favoritesService";
 import { ThemeContext } from "../theme/ThemeProvider";
+import HeaderBackButton from "../components/HeaderBackButton";
 
 const FAV_ICON = 44;
 const BADGE_MIN = 22;
-
 const GLASS_H = 52;
-const GLASS_ICON = 32;
+const RELATED_CARD_W = 156;
+const RELATED_IMG_H = 176;
+const HEADER_FADE_DISTANCE = 90;
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -57,9 +68,36 @@ function pickById(map, id) {
   const sid = String(id ?? "");
   const nid = Number(id);
   if (sid && Object.prototype.hasOwnProperty.call(map, sid)) return map[sid];
-  if (!Number.isNaN(nid) && Object.prototype.hasOwnProperty.call(map, nid))
+  if (!Number.isNaN(nid) && Object.prototype.hasOwnProperty.call(map, nid)) {
     return map[nid];
+  }
   return map[id];
+}
+
+function buildSharePayload(item) {
+  const title = item?.title || "Produs";
+  const category = item?.category ? `Categorie: ${item.category}` : "";
+  const price =
+    typeof item?.price === "number"
+      ? `${item.price} lei`
+      : item?.price
+        ? `${item.price} lei`
+        : "";
+  const description = String(item?.description || "").trim();
+
+  const dbShareUrl =
+    typeof item?.share_url === "string" ? item.share_url.trim() : "";
+
+  const computedShareUrl = "";
+  const shareUrl = dbShareUrl || computedShareUrl;
+
+  const lines = [title, category, price, description, shareUrl].filter(Boolean);
+
+  return {
+    title,
+    message: lines.join("\n"),
+    url: shareUrl || undefined,
+  };
 }
 
 export default function ItemDetailsScreen({ navigation, route }) {
@@ -69,36 +107,50 @@ export default function ItemDetailsScreen({ navigation, route }) {
   const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
   const HERO_H = useMemo(() => Math.round(SCREEN_H * 0.6), [SCREEN_H]);
 
-  const S = useMemo(() => makeStyles(tokens, HERO_H), [tokens, HERO_H]);
+  const scrollY = useRef(new Animated.Value(0)).current;
+
+  const S = useMemo(
+    () => makeStyles(tokens, HERO_H, insets),
+    [tokens, HERO_H, insets],
+  );
 
   const passedItem = route?.params?.item || null;
 
-  // "ready" = sentinel care indică că am primit răspuns de la getSession
-  // null = încă nu știm, object = logat, "ready" = știm că nu e logat
   const [session, setSession] = useState(null);
   const [sessionReady, setSessionReady] = useState(false);
 
   const [item, setItem] = useState(passedItem);
+  const [menuVisible, setMenuVisible] = useState(false);
 
-  const scrollRef = useRef(null);
+  const pendingSharePayloadRef = useRef(null);
+
+  const heroScrollRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const heroPressRef = useRef(null);
 
   const pulse = useRef(new Animated.Value(1)).current;
 
+  const [moreFromSeller, setMoreFromSeller] = useState([]);
+  const [similarItems, setSimilarItems] = useState([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+
   useFocusEffect(
     useCallback(() => {
       const fresh = route?.params?.item || null;
       setItem(fresh);
-
       setActiveIndex(0);
+      setMenuVisible(false);
+      pendingSharePayloadRef.current = null;
+      scrollY.setValue(0);
       try {
-        scrollRef.current?.scrollTo?.({ x: 0, y: 0, animated: false });
+        heroScrollRef.current?.scrollTo?.({ x: 0, y: 0, animated: false });
       } catch {}
-    }, [route?.params?.item]),
+    }, [route?.params?.item, scrollY]),
   );
 
-  useEffect(() => setItem(passedItem), [passedItem]);
+  useEffect(() => {
+    setItem(passedItem);
+  }, [passedItem]);
 
   const itemId = useMemo(() => (item?.id ? String(item.id) : null), [item]);
   const userId = session?.user?.id || null;
@@ -128,7 +180,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
     return Array.isArray(arr) ? arr.filter(Boolean) : [];
   }, [item?.images]);
 
-  // Încărcăm sesiunea o singură dată și setăm sessionReady când avem răspuns
   useEffect(() => {
     let sub;
     (async () => {
@@ -166,18 +217,54 @@ export default function ItemDetailsScreen({ navigation, route }) {
     }
   }, [itemId, userId]);
 
-  // FIX: așteptăm sessionReady înainte să apelăm loadFavInfo
-  // Astfel userId e corect (logat sau null) când facem query-ul
+  const loadRelated = useCallback(async () => {
+    if (!item?.id) {
+      setMoreFromSeller([]);
+      setSimilarItems([]);
+      return;
+    }
+
+    setRelatedLoading(true);
+    try {
+      const [sellerItems, similar] = await Promise.all([
+        fetchMoreFromSeller({
+          userId: item?.user_id,
+          excludeItemId: item?.id,
+          limit: 6,
+        }),
+        fetchSimilarItems({
+          category: item?.category,
+          excludeItemId: item?.id,
+          limit: 6,
+        }),
+      ]);
+
+      setMoreFromSeller(Array.isArray(sellerItems) ? sellerItems : []);
+      setSimilarItems(Array.isArray(similar) ? similar : []);
+    } catch (e) {
+      console.log("❌ loadRelated error:", e);
+      setMoreFromSeller([]);
+      setSimilarItems([]);
+    } finally {
+      setRelatedLoading(false);
+    }
+  }, [item]);
+
   useEffect(() => {
     if (!sessionReady) return;
     loadFavInfo();
   }, [loadFavInfo, sessionReady]);
 
+  useEffect(() => {
+    loadRelated();
+  }, [loadRelated]);
+
   useFocusEffect(
     useCallback(() => {
       if (!sessionReady) return;
       loadFavInfo();
-    }, [loadFavInfo, sessionReady]),
+      loadRelated();
+    }, [loadFavInfo, loadRelated, sessionReady]),
   );
 
   const goBackSafe = useCallback(() => {
@@ -265,20 +352,11 @@ export default function ItemDetailsScreen({ navigation, route }) {
     navigation.navigate(ROUTES.EditItem, { item });
   }, [navigation, item]);
 
-  const onScroll = useCallback(
+  const onHeroScroll = useCallback(
     (e) => {
       const x = e?.nativeEvent?.contentOffset?.x || 0;
       const i = Math.round(x / SCREEN_W);
       setActiveIndex(clamp(i, 0, Math.max(0, images.length - 1)));
-    },
-    [SCREEN_W, images.length],
-  );
-
-  const jumpTo = useCallback(
-    (idx) => {
-      const i = clamp(idx, 0, Math.max(0, images.length - 1));
-      setActiveIndex(i);
-      scrollRef.current?.scrollTo?.({ x: i * SCREEN_W, y: 0, animated: true });
     },
     [SCREEN_W, images.length],
   );
@@ -317,13 +395,119 @@ export default function ItemDetailsScreen({ navigation, route }) {
     [navigation, images],
   );
 
+  const openItem = useCallback(
+    (nextItem) => {
+      if (!nextItem) return;
+      navigation.navigate(ROUTES.ItemDetails, { item: nextItem });
+    },
+    [navigation],
+  );
+
+  const runPendingShare = useCallback(async () => {
+    const payload = pendingSharePayloadRef.current;
+    if (!payload) return;
+
+    pendingSharePayloadRef.current = null;
+
+    try {
+      await Share.share({
+        title: payload.title,
+        message: payload.message,
+        url: payload.url,
+      });
+    } catch (e) {
+      console.log("❌ share error:", e);
+    }
+  }, []);
+
+  const onShareItem = useCallback(() => {
+    if (!item) return;
+
+    pendingSharePayloadRef.current = buildSharePayload(item);
+    setMenuVisible(false);
+  }, [item]);
+
+  const onOpenMenu = useCallback(() => {
+    setMenuVisible(true);
+  }, []);
+
+  const renderRelatedCard = useCallback(
+    (relatedItem) => {
+      const img = Array.isArray(relatedItem?.images)
+        ? relatedItem.images[0]
+        : null;
+
+      return (
+        <TouchableOpacity
+          key={String(relatedItem?.id)}
+          activeOpacity={0.9}
+          style={S.relatedCard}
+          onPress={() => openItem(relatedItem)}
+        >
+          <View style={S.relatedImgBox}>
+            {img ? (
+              <Image
+                source={{ uri: img }}
+                style={S.relatedImg}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={S.relatedNoImg}>
+                <Text style={S.relatedNoImgText}>Fără imagine</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={S.relatedBody}>
+            <Text numberOfLines={1} style={S.relatedTitle}>
+              {relatedItem?.title || "-"}
+            </Text>
+            <Text style={S.relatedPrice}>
+              {typeof relatedItem?.price === "number"
+                ? relatedItem.price
+                : relatedItem?.price || "-"}{" "}
+              lei
+            </Text>
+            {!!relatedItem?.category ? (
+              <Text numberOfLines={1} style={S.relatedMeta}>
+                {relatedItem.category}
+              </Text>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [S, openItem],
+  );
+
+  const stickyBgOpacity = scrollY.interpolate({
+    inputRange: [0, 24, HEADER_FADE_DISTANCE],
+    outputRange: [0, 0.2, 1],
+    extrapolate: "clamp",
+  });
+
+  const stickyBorderOpacity = scrollY.interpolate({
+    inputRange: [0, 35, HEADER_FADE_DISTANCE],
+    outputRange: [0, 0.15, 1],
+    extrapolate: "clamp",
+  });
+
+  const stickyShadowOpacity = scrollY.interpolate({
+    inputRange: [0, 30, HEADER_FADE_DISTANCE],
+    outputRange: [0, 0.08, 0.18],
+    extrapolate: "clamp",
+  });
+
   if (!item) {
     return (
       <View style={[S.safe, { paddingTop: Math.max(insets.top, 14) }]}>
         <View style={S.topBar}>
-          <Pressable onPress={goBackSafe} style={S.topBtn} hitSlop={12}>
-            <Text style={S.topBtnText}>←</Text>
-          </Pressable>
+          <HeaderBackButton
+            onPress={goBackSafe}
+            absolute={false}
+            size={44}
+            style={S.inlineBackBtn}
+          />
         </View>
 
         <View style={S.center}>
@@ -348,148 +532,251 @@ export default function ItemDetailsScreen({ navigation, route }) {
 
   return (
     <View style={S.safe}>
-      <View style={S.mediaWrap}>
-        <ScrollView
-          ref={scrollRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={onScroll}
-          scrollEventThrottle={16}
-          style={{ width: SCREEN_W }}
+      <Animated.View
+        style={[
+          S.stickyHeaderBg,
+          {
+            opacity: stickyBgOpacity,
+          },
+        ]}
+        pointerEvents="none"
+      />
+      <Animated.View
+        style={[
+          S.stickyHeaderBorder,
+          {
+            opacity: stickyBorderOpacity,
+          },
+        ]}
+        pointerEvents="none"
+      />
+      <Animated.View
+        style={[
+          S.stickyHeaderShadow,
+          {
+            opacity: stickyShadowOpacity,
+          },
+        ]}
+        pointerEvents="none"
+      />
+
+      <View
+        style={[S.stickyHeaderRow, { top: headerTop }]}
+        pointerEvents="box-none"
+      >
+        <HeaderBackButton
+          onPress={goBackSafe}
+          absolute={false}
+          size={GLASS_H}
+          style={S.headerBackBtn}
+        />
+
+        <View style={{ flex: 1 }} />
+
+        <HeaderBackButton
+          onPress={onOpenMenu}
+          absolute={false}
+          size={GLASS_H}
+          style={S.headerDotsBtn}
+          iconStyle={S.dotsIconFix}
         >
-          {images.length > 0 ? (
-            images.map((uri, idx) => (
-              <Pressable
-                ref={idx === activeIndex ? heroPressRef : null}
-                key={`${uri}-${idx}`}
-                onPress={() => openViewer(idx)}
-                style={{ width: SCREEN_W }}
-              >
-                <Image source={{ uri }} style={S.heroImg} resizeMode="cover" />
-              </Pressable>
-            ))
-          ) : (
-            <View style={[S.heroImg, S.noImg]}>
-              <Text style={S.noImgText}>Fără imagine</Text>
-            </View>
-          )}
-        </ScrollView>
-
-        <View style={[S.headerRow, { top: headerTop }]}>
-          <Pressable onPress={goBackSafe} style={S.glassCircle} hitSlop={12}>
-            <Text style={S.glassBack}>‹</Text>
-          </Pressable>
-
-          <View style={S.glassPill}>
-            <Text style={S.glassTitle}>ModaGo</Text>
-          </View>
-
-          <View style={{ flex: 1 }} />
-
-          <Pressable onPress={() => {}} style={S.glassCircle} hitSlop={12}>
-            <Text style={S.glassDots}>•••</Text>
-          </Pressable>
-        </View>
-
-        {images.length > 1 ? (
-          <View style={S.dots}>
-            {images.map((_, i) => (
-              <View key={i} style={[S.dot, i === activeIndex && S.dotActive]} />
-            ))}
-          </View>
-        ) : null}
+          <Text style={S.glassDots}>•••</Text>
+        </HeaderBackButton>
       </View>
 
-      <View style={S.thumbsBar}>
-        <View style={[S.thumbsRow, images.length <= 1 && { opacity: 0 }]}>
-          {images.length > 1
-            ? images.slice(0, 8).map((uri, idx) => (
+      <Animated.ScrollView
+        style={S.verticalScroll}
+        contentContainerStyle={S.verticalContent}
+        showsVerticalScrollIndicator={false}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: false },
+        )}
+        scrollEventThrottle={16}
+      >
+        <View style={S.mediaWrap}>
+          <ScrollView
+            ref={heroScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onHeroScroll}
+            scrollEventThrottle={16}
+            style={{ width: SCREEN_W }}
+          >
+            {images.length > 0 ? (
+              images.map((uri, idx) => (
                 <Pressable
-                  key={`${uri}-t-${idx}`}
-                  onPress={() => jumpTo(idx)}
-                  onLongPress={() => openViewer(idx)}
-                  style={[
-                    S.thumbWrap,
-                    idx === activeIndex && S.thumbWrapActive,
-                  ]}
+                  ref={idx === activeIndex ? heroPressRef : null}
+                  key={`${uri}-${idx}`}
+                  onPress={() => openViewer(idx)}
+                  style={{ width: SCREEN_W }}
                 >
-                  <Image source={{ uri }} style={S.thumb} resizeMode="cover" />
+                  <Image
+                    source={{ uri }}
+                    style={S.heroImg}
+                    resizeMode="cover"
+                  />
                 </Pressable>
               ))
-            : null}
-        </View>
+            ) : (
+              <View style={[S.heroImg, S.noImg]}>
+                <Text style={S.noImgText}>Fără imagine</Text>
+              </View>
+            )}
+          </ScrollView>
 
-        <View style={{ position: "relative" }}>
-          <Pressable onPress={onToggleFav} disabled={favLoading} hitSlop={8}>
-            <Animated.View
-              style={[
-                S.favCircle,
-                isFav ? S.favCircleActive : S.favCircleIdle,
-                { transform: [{ scale: pulse }] },
-              ]}
-            >
-              {!isFav ? (
-                <Text style={S.heartGhost}>♡</Text>
-              ) : (
-                <Text style={S.heartSolid}>❤</Text>
-              )}
-            </Animated.View>
-          </Pressable>
-
-          {favCount > 0 ? (
-            <View style={[S.countPill, { minWidth: dynamicBadgeWidth }]}>
-              <Text style={S.countText}>{countText}</Text>
+          {images.length > 1 ? (
+            <View style={S.dots}>
+              {images.map((_, i) => (
+                <View
+                  key={i}
+                  style={[S.dot, i === activeIndex && S.dotActive]}
+                />
+              ))}
             </View>
           ) : null}
         </View>
-      </View>
 
-      {isOwner ? (
-        <View style={S.ownerRow}>
-          <TouchableOpacity
-            style={[S.ownerBtn, S.ownerBtnEdit]}
-            onPress={onEdit}
-            activeOpacity={0.9}
-          >
-            <Text style={S.ownerBtnText}>Editează</Text>
-          </TouchableOpacity>
+        {/* FAVORITE BAR — thumbnails scoase complet */}
+        <View style={S.favBar}>
+          <View style={{ flex: 1 }} />
 
-          <TouchableOpacity
-            style={[S.ownerBtn, S.ownerBtnDel]}
-            onPress={onDelete}
-            activeOpacity={0.9}
-          >
-            <Text style={S.ownerBtnText}>Șterge</Text>
-          </TouchableOpacity>
+          <View style={{ position: "relative" }}>
+            <Pressable onPress={onToggleFav} disabled={favLoading} hitSlop={8}>
+              <Animated.View
+                style={[
+                  S.favCircle,
+                  isFav ? S.favCircleActive : S.favCircleIdle,
+                  { transform: [{ scale: pulse }] },
+                ]}
+              >
+                {!isFav ? (
+                  <Text style={S.heartGhost}>♡</Text>
+                ) : (
+                  <Text style={S.heartSolid}>❤</Text>
+                )}
+              </Animated.View>
+            </Pressable>
+
+            {favCount > 0 ? (
+              <View style={[S.countPill, { minWidth: dynamicBadgeWidth }]}>
+                <Text style={S.countText}>{countText}</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
-      ) : null}
 
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, paddingBottom: 26 }}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={S.title}>{item.title || "Produs"}</Text>
+        {isOwner ? (
+          <View style={S.ownerRow}>
+            <TouchableOpacity
+              style={[S.ownerBtn, S.ownerBtnEdit]}
+              onPress={onEdit}
+              activeOpacity={0.9}
+            >
+              <Text style={S.ownerBtnText}>Editează</Text>
+            </TouchableOpacity>
 
-        <Text style={S.price}>
-          {typeof item.price === "number" ? item.price : item.price || "-"} lei
-        </Text>
-
-        {!!item.category ? (
-          <Text style={S.cat}>Categorie: {item.category}</Text>
+            <TouchableOpacity
+              style={[S.ownerBtn, S.ownerBtnDel]}
+              onPress={onDelete}
+              activeOpacity={0.9}
+            >
+              <Text style={S.ownerBtnText}>Șterge</Text>
+            </TouchableOpacity>
+          </View>
         ) : null}
 
-        <Text style={S.section}>Descriere</Text>
-        <Text style={S.desc}>{item.description || "—"}</Text>
+        <View style={S.contentWrap}>
+          <Text style={S.title}>{item.title || "Produs"}</Text>
 
-        <View style={{ height: Math.max(insets.bottom, 10) }} />
-      </ScrollView>
+          <Text style={S.price}>
+            {typeof item.price === "number" ? item.price : item.price || "-"}{" "}
+            lei
+          </Text>
+
+          {!!item.category ? (
+            <Text style={S.cat}>Categorie: {item.category}</Text>
+          ) : null}
+
+          <Text style={S.section}>Descriere</Text>
+          <Text style={S.desc}>{item.description || "—"}</Text>
+
+          {!relatedLoading && moreFromSeller.length > 0 ? (
+            <View style={S.relatedSection}>
+              <Text style={S.relatedSectionTitle}>
+                Mai multe de la acest utilizator
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={S.relatedRow}
+              >
+                {moreFromSeller.map(renderRelatedCard)}
+              </ScrollView>
+            </View>
+          ) : null}
+
+          {!relatedLoading && similarItems.length > 0 ? (
+            <View style={S.relatedSection}>
+              <Text style={S.relatedSectionTitle}>Articole similare</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={S.relatedRow}
+              >
+                {similarItems.map(renderRelatedCard)}
+              </ScrollView>
+            </View>
+          ) : null}
+
+          <View style={{ height: Math.max(insets.bottom, 10) }} />
+        </View>
+      </Animated.ScrollView>
+
+      <Modal
+        visible={menuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+        onDismiss={runPendingShare}
+      >
+        <View style={S.menuOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setMenuVisible(false)}
+          />
+
+          <View style={S.menuSheetWrap}>
+            <View style={S.menuSheet}>
+              <TouchableOpacity
+                activeOpacity={0.88}
+                style={S.menuAction}
+                onPress={onShareItem}
+              >
+                <Text style={S.menuActionText}>Partajare</Text>
+              </TouchableOpacity>
+
+              <View style={S.menuDivider} />
+
+              <TouchableOpacity
+                activeOpacity={0.88}
+                style={S.menuAction}
+                onPress={() => setMenuVisible(false)}
+              >
+                <Text style={S.menuCancelText}>Închidere</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-function makeStyles(tokens, HERO_H) {
+function makeStyles(tokens, HERO_H, insets) {
+  const isDark = tokens?.scheme === "dark";
+
   const bg = pickTok(tokens, "bg", "#0B1220");
   const card = pickTok(tokens, "card", "#0B1620");
   const text = pickTok(tokens, "text", "#EAF2F7");
@@ -501,10 +788,20 @@ function makeStyles(tokens, HERO_H) {
   const border = pickTok(tokens, "border", "rgba(255,255,255,0.08)");
   const primary = pickTok(tokens, "primary", "#2CA6A4");
   const danger = pickTok(tokens, "danger", "#EF4444");
-  const shadowColor = pickTok(tokens, "shadowColor", "#000");
   const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
   const mediaBg = pickTok(tokens, "mediaBg", "rgba(0,0,0,0.35)");
-  const glassBg = pickTok(tokens, "glassBg", "rgba(10,14,22,0.52)");
+  const shadowColor = pickTok(tokens, "shadowColor", "#000");
+
+  const stickyBg = isDark ? "rgba(11,18,32,0.88)" : "rgba(255,255,255,0.88)";
+  const stickyBorder = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const glassText = isDark ? "rgba(255,255,255,0.90)" : "rgba(0,0,0,0.75)";
+
+  const glassMenuBg = isDark ? "rgba(10,14,22,0.42)" : "rgba(255,255,255,0.62)";
+  const glassMenuDivider = isDark
+    ? "rgba(255,255,255,0.10)"
+    : "rgba(0,0,0,0.08)";
+  const overlayBg = isDark ? "rgba(0,0,0,0.28)" : "rgba(15,23,42,0.14)";
+
   const favIdleBg = pickTok(tokens, "favIdleBg", "rgba(255,255,255,0.06)");
   const favIdleBorder = pickTok(
     tokens,
@@ -520,64 +817,101 @@ function makeStyles(tokens, HERO_H) {
   );
   const badgeBorder = pickTok(tokens, "badgeBorder", "rgba(255,255,255,0.95)");
 
-  const glassBase = {
-    height: GLASS_H,
-    borderRadius: 999,
-    backgroundColor: glassBg,
-    borderWidth: 0,
-    shadowColor,
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  };
+  const menuActionColor = pickTok(
+    tokens,
+    "primary",
+    isDark ? "#60A5FA" : "#2CA6A4",
+  );
+
+  const menuCancelColor = pickTok(
+    tokens,
+    "primary",
+    isDark ? "#60A5FA" : "#2CA6A4",
+  );
 
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: bg },
-    mediaWrap: { backgroundColor: mediaBg },
-    heroImg: { width: "100%", height: HERO_H, backgroundColor: mediaBg },
-    noImg: { alignItems: "center", justifyContent: "center" },
-    noImgText: { color: onPrimary, fontWeight: "900" },
 
-    headerRow: {
+    stickyHeaderBg: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      height: insets.top + GLASS_H + 18,
+      backgroundColor: stickyBg,
+      zIndex: 140,
+    },
+    stickyHeaderBorder: {
+      position: "absolute",
+      top: insets.top + GLASS_H + 17,
+      left: 0,
+      right: 0,
+      height: 1,
+      backgroundColor: stickyBorder,
+      zIndex: 141,
+    },
+    stickyHeaderShadow: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      height: insets.top + GLASS_H + 18,
+      shadowColor,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 8,
+      zIndex: 139,
+    },
+
+    stickyHeaderRow: {
       position: "absolute",
       left: 14,
       right: 14,
       height: GLASS_H,
       flexDirection: "row",
       alignItems: "center",
-      zIndex: 30,
+      zIndex: 200,
     },
-    glassCircle: { ...glassBase, width: GLASS_H },
-    glassBack: {
-      fontSize: GLASS_ICON,
-      lineHeight: GLASS_ICON + 2,
-      fontWeight: "700",
-      color: "rgba(255,255,255,0.90)",
-      textAlign: "center",
-      textAlignVertical: "center",
-      includeFontPadding: false,
-      marginLeft: 0,
-      marginTop: 0,
+
+    verticalScroll: { flex: 1 },
+    verticalContent: { paddingBottom: 0 },
+
+    mediaWrap: {
+      backgroundColor: mediaBg,
+      position: "relative",
+    },
+    heroImg: {
+      width: "100%",
+      height: HERO_H,
+      backgroundColor: mediaBg,
+    },
+    noImg: { alignItems: "center", justifyContent: "center" },
+    noImgText: { color: onPrimary, fontWeight: "900" },
+
+    headerBackBtn: {
+      width: GLASS_H,
+      height: GLASS_H,
+      borderRadius: 999,
+    },
+    headerDotsBtn: {
+      width: GLASS_H,
+      height: GLASS_H,
+      borderRadius: 999,
     },
     glassDots: {
-      fontSize: 18,
-      lineHeight: 18,
-      fontWeight: "800",
-      color: "rgba(255,255,255,0.90)",
+      fontSize: 20,
+      lineHeight: 22,
+      fontWeight: "600",
+      color: glassText,
       textAlign: "center",
       textAlignVertical: "center",
       includeFontPadding: false,
-      marginTop: 0,
+      letterSpacing: 2,
+      marginTop: -1,
     },
-    glassPill: { ...glassBase, paddingHorizontal: 18, marginLeft: 6 },
-    glassTitle: {
-      color: "rgba(255,255,255,0.92)",
-      fontWeight: "800",
-      fontSize: 18,
-      letterSpacing: 0.2,
+    dotsIconFix: {
+      marginLeft: 0,
+      marginTop: 0,
     },
 
     dots: {
@@ -597,26 +931,13 @@ function makeStyles(tokens, HERO_H) {
     },
     dotActive: { backgroundColor: "rgba(255,255,255,0.95)" },
 
-    thumbsBar: {
+    favBar: {
       flexDirection: "row",
       alignItems: "center",
       paddingHorizontal: 16,
       paddingVertical: 12,
-      gap: 12,
       backgroundColor: bg,
     },
-    thumbsRow: { flex: 1, flexDirection: "row", gap: 10 },
-    thumbWrap: {
-      width: 56,
-      height: 56,
-      borderRadius: 12,
-      overflow: "hidden",
-      borderWidth: 2,
-      borderColor: border,
-      backgroundColor: card,
-    },
-    thumbWrapActive: { borderColor: primary },
-    thumb: { width: "100%", height: "100%" },
 
     favCircle: {
       width: FAV_ICON,
@@ -673,24 +994,86 @@ function makeStyles(tokens, HERO_H) {
     ownerBtnDel: { backgroundColor: danger },
     ownerBtnText: { color: onPrimary, fontWeight: "900", fontSize: 16 },
 
+    contentWrap: {
+      padding: 16,
+      paddingBottom: 26,
+    },
+
     title: { fontSize: 40, fontWeight: "900", marginTop: 6, color: text },
     price: { fontSize: 34, fontWeight: "900", color: primary, marginTop: 6 },
     cat: { marginTop: 10, color: muted, fontWeight: "800" },
     section: { marginTop: 22, fontSize: 22, fontWeight: "900", color: text },
     desc: { marginTop: 8, fontSize: 16, lineHeight: 22, color: text },
 
-    topBar: { paddingHorizontal: 14, paddingBottom: 8 },
-    topBtn: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: "rgba(255,255,255,0.92)",
-      alignItems: "center",
-      justifyContent: "center",
+    relatedSection: {
+      marginTop: 24,
+    },
+    relatedSectionTitle: {
+      fontSize: 20,
+      fontWeight: "900",
+      color: text,
+      marginBottom: 12,
+    },
+    relatedRow: {
+      paddingRight: 16,
+      gap: 12,
+    },
+    relatedCard: {
+      width: RELATED_CARD_W,
+      borderRadius: 16,
+      overflow: "hidden",
+      backgroundColor: card,
       borderWidth: 1,
       borderColor: border,
     },
-    topBtnText: { fontSize: 22, fontWeight: "900", color: "#111" },
+    relatedImgBox: {
+      width: "100%",
+      height: RELATED_IMG_H,
+      backgroundColor: mediaBg,
+    },
+    relatedImg: {
+      width: "100%",
+      height: "100%",
+    },
+    relatedNoImg: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    relatedNoImgText: {
+      color: onPrimary,
+      fontWeight: "900",
+      fontSize: 12,
+    },
+    relatedBody: {
+      padding: 10,
+    },
+    relatedTitle: {
+      fontSize: 16,
+      fontWeight: "900",
+      color: text,
+    },
+    relatedPrice: {
+      marginTop: 6,
+      fontSize: 15,
+      fontWeight: "900",
+      color: primary,
+    },
+    relatedMeta: {
+      marginTop: 6,
+      color: muted,
+      fontWeight: "700",
+      fontSize: 13,
+    },
+
+    topBar: { paddingHorizontal: 14, paddingBottom: 8 },
+
+    inlineBackBtn: {
+      shadowOpacity: 0.08,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 2,
+    },
 
     center: {
       flex: 1,
@@ -720,5 +1103,53 @@ function makeStyles(tokens, HERO_H) {
       justifyContent: "center",
     },
     primaryText: { color: onPrimary, fontWeight: "900" },
+
+    menuOverlay: {
+      flex: 1,
+      justifyContent: "flex-end",
+      backgroundColor: overlayBg,
+    },
+
+    menuSheetWrap: {
+      paddingHorizontal: 14,
+      paddingBottom: Math.max(insets.bottom, 10) + 10,
+    },
+
+    menuSheet: {
+      borderRadius: 22,
+      overflow: "hidden",
+      backgroundColor: glassMenuBg,
+      borderWidth: 1,
+      borderColor: glassMenuDivider,
+      shadowColor,
+      shadowOpacity: isDark ? 0.16 : 0.08,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 6,
+    },
+
+    menuAction: {
+      minHeight: 72,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 18,
+    },
+
+    menuActionText: {
+      fontSize: 18,
+      fontWeight: "500",
+      color: menuActionColor,
+    },
+
+    menuCancelText: {
+      fontSize: 18,
+      fontWeight: "600",
+      color: menuCancelColor,
+    },
+
+    menuDivider: {
+      height: 1,
+      backgroundColor: glassMenuDivider,
+    },
   });
 }

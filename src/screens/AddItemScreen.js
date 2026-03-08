@@ -1,12 +1,7 @@
 // src/screens/AddItemScreen.js
-// ============================================
 // MODIFICARE:
-// - După publicare: trimitem către Home createdItem + createdAt (trigger)
-//   ca Home să insereze local anunțul nou (fără logout/login).
-// - Dacă avem doar ID: trimitem createdItemId + createdAt (trigger).
-// NU se modifică:
-// - JPEG real pe mobile, max 1600px long side, theme-aware tokens.
-// ============================================
+// - back button folosește acum componenta reutilizabilă HeaderBackButton
+// - păstrează stilul din ThemeSettings
 
 import React, {
   useCallback,
@@ -36,10 +31,12 @@ import { supabase } from "../supabaseClient";
 import { createItem } from "../services/itemsService";
 import { ROUTES } from "../navigation/routes";
 import { ThemeContext } from "../theme/ThemeProvider";
+import HeaderBackButton, {
+  HEADER_BACK_SIZE,
+} from "../components/HeaderBackButton";
 
 const STORAGE_BUCKET = "items";
 const MAX_IMAGES = 6;
-
 const MAX_LONG_SIDE = 1600;
 const JPEG_QUALITY = 0.85;
 
@@ -146,11 +143,16 @@ export default function AddItemScreen({ navigation }) {
   const [price, setPrice] = useState("");
   const [category, setCategory] = useState("");
 
-  const [localImages, setLocalImages] = useState([]); // [{ uri, width?, height? }]
+  const [localImages, setLocalImages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   const canPickMore = localImages.length < MAX_IMAGES;
+
+  const goBackSafe = useCallback(() => {
+    if (navigation?.canGoBack?.()) navigation.goBack();
+    else navigation.navigate(ROUTES.Home);
+  }, [navigation]);
 
   useEffect(() => {
     (async () => {
@@ -265,7 +267,7 @@ export default function AddItemScreen({ navigation }) {
         created && typeof created === "object" ? created : null;
       const createdId = createdRow?.id != null ? String(createdRow.id) : null;
 
-      const createdAt = Date.now(); // ✅ trigger pentru Home
+      const createdAt = Date.now();
 
       if (createdRow?.id) {
         navigation.navigate(ROUTES.Home, {
@@ -291,96 +293,99 @@ export default function AddItemScreen({ navigation }) {
   }, [title, description, normalizedPrice, category, localImages, navigation]);
 
   return (
-    <ScrollView
-      style={S.screen}
-      contentContainerStyle={[
-        S.page,
-        {
-          paddingTop: Math.max(insets.top, 12) + 16,
-          paddingBottom: Math.max(insets.bottom, 16) + 18,
-        },
-      ]}
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={S.h1}>Adaugă un produs</Text>
+    <View style={S.screen}>
+      <HeaderBackButton onPress={goBackSafe} top={insets.top + 10} />
 
-      <TextInput
-        value={title}
-        onChangeText={setTitle}
-        placeholder="Titlu"
-        placeholderTextColor={S.placeholder.color}
-        style={S.input}
-      />
-      <TextInput
-        value={description}
-        onChangeText={setDescription}
-        placeholder="Descriere"
-        placeholderTextColor={S.placeholder.color}
-        style={[S.input, S.textarea]}
-        multiline
-      />
-      <TextInput
-        value={price}
-        onChangeText={setPrice}
-        placeholder="Preț (ex: 120)"
-        placeholderTextColor={S.placeholder.color}
-        style={S.input}
-        keyboardType="numeric"
-      />
-      <TextInput
-        value={category}
-        onChangeText={setCategory}
-        placeholder="Categorie (ex: Femei)"
-        placeholderTextColor={S.placeholder.color}
-        style={S.input}
-      />
-
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={pickImages}
-        style={S.pickBtn}
-        disabled={loading}
+      <ScrollView
+        contentContainerStyle={[
+          S.page,
+          {
+            paddingTop: insets.top + 10 + HEADER_BACK_SIZE + 18,
+            paddingBottom: Math.max(insets.bottom, 16) + 18,
+          },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={S.pickText}>
-          Alege imagini ({localImages.length}/{MAX_IMAGES})
-        </Text>
-      </TouchableOpacity>
+        <Text style={S.h1}>Adaugă un produs</Text>
 
-      {localImages.length > 0 && (
-        <View style={S.imagesRow}>
-          {localImages.map((img, idx) => (
-            <View key={`${img.uri}-${idx}`} style={S.thumbWrap}>
-              <Image source={{ uri: img.uri }} style={S.thumb} />
-              <TouchableOpacity
-                onPress={() => removeImage(idx)}
-                style={S.removeBtn}
-                activeOpacity={0.85}
-              >
-                <Text style={S.removeText}>×</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
+        <TextInput
+          value={title}
+          onChangeText={setTitle}
+          placeholder="Titlu"
+          placeholderTextColor={S.placeholder.color}
+          style={S.input}
+        />
+        <TextInput
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Descriere"
+          placeholderTextColor={S.placeholder.color}
+          style={[S.input, S.textarea]}
+          multiline
+        />
+        <TextInput
+          value={price}
+          onChangeText={setPrice}
+          placeholder="Preț (ex: 120)"
+          placeholderTextColor={S.placeholder.color}
+          style={S.input}
+          keyboardType="numeric"
+        />
+        <TextInput
+          value={category}
+          onChangeText={setCategory}
+          placeholder="Categorie (ex: Femei)"
+          placeholderTextColor={S.placeholder.color}
+          style={S.input}
+        />
 
-      {!!errorMsg && <Text style={S.err}>{errorMsg}</Text>}
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={pickImages}
+          style={S.pickBtn}
+          disabled={loading}
+        >
+          <Text style={S.pickText}>
+            Alege imagini ({localImages.length}/{MAX_IMAGES})
+          </Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={publish}
-        style={[S.pubBtn, loading && { opacity: 0.7 }]}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color={S.onPrimary.color} />
-        ) : (
-          <Text style={S.pubText}>Publică produsul</Text>
+        {localImages.length > 0 && (
+          <View style={S.imagesRow}>
+            {localImages.map((img, idx) => (
+              <View key={`${img.uri}-${idx}`} style={S.thumbWrap}>
+                <Image source={{ uri: img.uri }} style={S.thumb} />
+                <TouchableOpacity
+                  onPress={() => removeImage(idx)}
+                  style={S.removeBtn}
+                  activeOpacity={0.85}
+                >
+                  <Text style={S.removeText}>×</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
         )}
-      </TouchableOpacity>
 
-      <View style={{ height: 6 }} />
-    </ScrollView>
+        {!!errorMsg && <Text style={S.err}>{errorMsg}</Text>}
+
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={publish}
+          style={[S.pubBtn, loading && { opacity: 0.7 }]}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color={S.onPrimary.color} />
+          ) : (
+            <Text style={S.pubText}>Publică produsul</Text>
+          )}
+        </TouchableOpacity>
+
+        <View style={{ height: 6 }} />
+      </ScrollView>
+    </View>
   );
 }
 

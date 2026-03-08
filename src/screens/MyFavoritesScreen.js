@@ -1,7 +1,8 @@
 // src/screens/MyFavoritesScreen.js
-// MODIFICARE: fetchMyFavoriteItems mutat din itemsService în favoritesService
-// -> fetchFavoriteItems (numele nou din favoritesService)
-// + adăugat suport theme-aware (tokens) ca restul screen-urilor
+// MODIFICARE:
+// - back button unificat cu HeaderBackButton
+// - același stil ca în ThemeSettings / AddItem / EditItem / ItemDetails
+// - restul logicii rămâne neschimbat
 
 import React, {
   useCallback,
@@ -19,11 +20,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import { fetchFavoriteItems } from "../services/favoritesService";
 import { ThemeContext } from "../theme/ThemeProvider";
+import HeaderBackButton from "../components/HeaderBackButton";
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -31,6 +34,7 @@ function pickTok(tokens, key, fallback) {
 }
 
 export default function MyFavoritesScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const { tokens } = useContext(ThemeContext);
   const S = useMemo(() => makeStyles(tokens), [tokens]);
 
@@ -80,9 +84,18 @@ export default function MyFavoritesScreen({ navigation }) {
     return unsub;
   }, [navigation, load]);
 
+  const goBackSafe = useCallback(() => {
+    if (navigation?.canGoBack?.()) navigation.goBack();
+    else {
+      const parent = navigation.getParent?.();
+      if (parent?.navigate) parent.navigate(ROUTES.Profile);
+    }
+  }, [navigation]);
+
   const renderItem = useCallback(
     ({ item }) => {
       const img = Array.isArray(item?.images) ? item.images[0] : null;
+
       return (
         <TouchableOpacity
           activeOpacity={0.9}
@@ -119,33 +132,58 @@ export default function MyFavoritesScreen({ navigation }) {
     [navigation, S],
   );
 
+  const header = (
+    <View
+      style={[
+        S.header,
+        {
+          paddingTop: Math.max(insets.top, 10),
+        },
+      ]}
+    >
+      <HeaderBackButton onPress={goBackSafe} absolute={false} />
+      <Text style={S.h1}>Favorite</Text>
+    </View>
+  );
+
   if (loading) {
     return (
-      <View style={S.center}>
-        <ActivityIndicator size="large" />
-        <Text style={S.muted}>Se încarcă…</Text>
+      <View style={S.screen}>
+        {header}
+        <View style={S.center}>
+          <ActivityIndicator size="large" />
+          <Text style={S.muted}>Se încarcă…</Text>
+        </View>
       </View>
     );
   }
 
   if (err) {
     return (
-      <View style={S.center}>
-        <Text style={S.err}>{err}</Text>
-        <TouchableOpacity style={S.retry} onPress={load} activeOpacity={0.9}>
-          <Text style={S.retryText}>Reîncearcă</Text>
-        </TouchableOpacity>
+      <View style={S.screen}>
+        {header}
+        <View style={S.center}>
+          <Text style={S.err}>{err}</Text>
+          <TouchableOpacity style={S.retry} onPress={load} activeOpacity={0.9}>
+            <Text style={S.retryText}>Reîncearcă</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
 
   return (
     <View style={S.screen}>
+      {header}
+
       <FlatList
         data={items}
         keyExtractor={(it) => String(it.id)}
         renderItem={renderItem}
-        contentContainerStyle={{ padding: 14, paddingBottom: 24 }}
+        contentContainerStyle={{
+          paddingHorizontal: 14,
+          paddingBottom: Math.max(insets.bottom, 24),
+        }}
         ListEmptyComponent={
           <View style={S.center}>
             <Text style={S.muted}>Nu ai favorite încă.</Text>
@@ -170,19 +208,40 @@ function makeStyles(tokens) {
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: bg },
 
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingBottom: 12,
+    },
+
+    h1: {
+      fontSize: 22,
+      fontWeight: "900",
+      color: text,
+    },
+
     center: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
       padding: 16,
     },
+
     muted: {
       marginTop: 10,
       color: muted,
       fontWeight: "800",
       textAlign: "center",
     },
-    err: { color: danger, fontWeight: "900", textAlign: "center" },
+
+    err: {
+      color: danger,
+      fontWeight: "900",
+      textAlign: "center",
+    },
+
     retry: {
       marginTop: 12,
       backgroundColor: text,
@@ -190,6 +249,7 @@ function makeStyles(tokens) {
       paddingVertical: 10,
       borderRadius: 12,
     },
+
     retryText: { color: onPrimary, fontWeight: "900" },
 
     card: {
@@ -200,6 +260,7 @@ function makeStyles(tokens) {
       borderWidth: 1,
       borderColor: border,
     },
+
     imgBox: { height: 220, backgroundColor: mediaBg },
     img: { width: "100%", height: "100%" },
     noImg: { flex: 1, alignItems: "center", justifyContent: "center" },

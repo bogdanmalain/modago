@@ -1,7 +1,9 @@
 // src/screens/FavoritesScreen.js
-// MODIFICARE: fetchMyFavoriteItems mutat din itemsService în favoritesService
-// -> fetchFavoriteItems (numele nou din favoritesService)
-// + adăugat suport theme-aware (tokens) ca restul screen-urilor
+// MODIFICARE:
+// - folosește ScreenHeader
+// - back button unificat cu restul aplicației
+// - FIX: back merge explicit în Profile, nu pe istoricul stack-ului
+// - logică neschimbată
 
 import React, {
   useCallback,
@@ -18,7 +20,6 @@ import {
   Image,
   TouchableOpacity,
   ActivityIndicator,
-  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -26,6 +27,7 @@ import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import { fetchFavoriteItems } from "../services/favoritesService";
 import { ThemeContext } from "../theme/ThemeProvider";
+import ScreenHeader from "../components/ScreenHeader";
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -91,12 +93,7 @@ export default function FavoritesScreen({ navigation }) {
   }, [navigation, load]);
 
   const goBackSafe = useCallback(() => {
-    if (navigation?.canGoBack?.()) {
-      navigation.goBack();
-    } else {
-      const parent = navigation.getParent?.();
-      if (parent?.navigate) parent.navigate(ROUTES.Profile);
-    }
+    navigation.navigate("TabsRoot", { screen: ROUTES.Profile });
   }, [navigation]);
 
   const renderItem = useCallback(
@@ -136,29 +133,32 @@ export default function FavoritesScreen({ navigation }) {
 
   if (!authReady) {
     return (
-      <View style={S.center}>
-        <ActivityIndicator />
-        <Text style={S.muted}>Se încarcă sesiunea…</Text>
+      <View style={S.screen}>
+        <ScreenHeader title="Favorite" onBack={goBackSafe} />
+        <View style={S.center}>
+          <ActivityIndicator />
+          <Text style={S.muted}>Se încarcă sesiunea…</Text>
+        </View>
       </View>
     );
   }
 
   if (!userId) {
     return (
-      <View style={S.center}>
-        <Text style={S.muted}>Trebuie să fii logat ca să vezi favoritele.</Text>
+      <View style={S.screen}>
+        <ScreenHeader title="Favorite" onBack={goBackSafe} />
+        <View style={S.center}>
+          <Text style={S.muted}>
+            Trebuie să fii logat ca să vezi favoritele.
+          </Text>
+        </View>
       </View>
     );
   }
 
   return (
-    <View style={[S.screen, { paddingTop: Math.max(insets.top, 10) }]}>
-      <View style={S.topBar}>
-        <Pressable onPress={goBackSafe} style={S.backBtn} hitSlop={12}>
-          <Text style={S.backTxt}>←</Text>
-        </Pressable>
-        <Text style={S.h1}>Favorite</Text>
-      </View>
+    <View style={S.screen}>
+      <ScreenHeader title="Favorite" onBack={goBackSafe} />
 
       {loading ? (
         <View style={S.center}>
@@ -170,7 +170,10 @@ export default function FavoritesScreen({ navigation }) {
           data={items}
           keyExtractor={(it) => String(it.id)}
           renderItem={renderItem}
-          contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 14) }}
+          contentContainerStyle={{
+            paddingHorizontal: 14,
+            paddingBottom: Math.max(insets.bottom, 14),
+          }}
           ListEmptyComponent={
             <View style={S.center}>
               <Text style={S.muted}>Nu ai favorite încă.</Text>
@@ -193,26 +196,7 @@ function makeStyles(tokens) {
   const mediaBg = pickTok(tokens, "mediaBg", "#111827");
 
   return StyleSheet.create({
-    screen: { flex: 1, backgroundColor: bg, paddingHorizontal: 14 },
-
-    topBar: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      marginBottom: 10,
-    },
-    backBtn: {
-      width: 42,
-      height: 42,
-      borderRadius: 21,
-      backgroundColor: card,
-      alignItems: "center",
-      justifyContent: "center",
-      borderWidth: 1,
-      borderColor: border,
-    },
-    backTxt: { fontSize: 22, fontWeight: "900", color: text },
-    h1: { fontSize: 22, fontWeight: "900", color: text },
+    screen: { flex: 1, backgroundColor: bg },
 
     center: {
       flex: 1,
@@ -220,6 +204,7 @@ function makeStyles(tokens) {
       justifyContent: "center",
       padding: 14,
     },
+
     muted: {
       marginTop: 8,
       color: muted,
@@ -235,6 +220,7 @@ function makeStyles(tokens) {
       borderWidth: 1,
       borderColor: border,
     },
+
     imgBox: { height: 180, backgroundColor: mediaBg },
     img: { width: "100%", height: "100%" },
     noImg: { flex: 1, alignItems: "center", justifyContent: "center" },

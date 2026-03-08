@@ -1,4 +1,15 @@
-// src/screens/RegisterScreen.js
+/**
+ * ================================
+ * REGISTERSCREEN
+ * ================================
+ * KeyboardAvoidingView + ScrollView + kbOpen listener
+ * -> justifyContent: kbOpen ? "flex-end" : "center" = centrare + push
+ *
+ * FIX v2: eyeBtn centrat cu INPUT_HEIGHT
+ *       + autoCorrect/textContentType/autoComplete pe input-uri
+ *       + placeholderTextColor fallback la tokens.muted
+ */
+
 import React, {
   useCallback,
   useRef,
@@ -188,11 +199,14 @@ export default function RegisterScreen({ navigation }) {
               autoCapitalize="none"
               keyboardType="email-address"
               style={styles.input}
-              placeholderTextColor={tokens.subtext}
+              placeholderTextColor={tokens.subtext ?? tokens.muted}
               editable={!loading}
               returnKeyType="next"
               blurOnSubmit={false}
               onSubmitEditing={() => passRef.current?.focus?.()}
+              autoCorrect={false}
+              textContentType="none"
+              autoComplete="off"
             />
 
             <View style={styles.passRow}>
@@ -203,11 +217,14 @@ export default function RegisterScreen({ navigation }) {
                 placeholder="Parolă"
                 secureTextEntry={!showPass1}
                 style={[styles.input, styles.passInput]}
-                placeholderTextColor={tokens.subtext}
+                placeholderTextColor={tokens.subtext ?? tokens.muted}
                 editable={!loading}
                 returnKeyType="next"
                 blurOnSubmit={false}
                 onSubmitEditing={() => pass2Ref.current?.focus?.()}
+                autoCorrect={false}
+                textContentType="none"
+                autoComplete="off"
               />
               <TouchableOpacity
                 onPress={() => setShowPass1((v) => !v)}
@@ -227,10 +244,13 @@ export default function RegisterScreen({ navigation }) {
                 placeholder="Repetă parola"
                 secureTextEntry={!showPass2}
                 style={[styles.input, styles.passInput]}
-                placeholderTextColor={tokens.subtext}
+                placeholderTextColor={tokens.subtext ?? tokens.muted}
                 editable={!loading}
                 returnKeyType="done"
                 onSubmitEditing={onRegister}
+                autoCorrect={false}
+                textContentType="none"
+                autoComplete="off"
               />
               <TouchableOpacity
                 onPress={() => setShowPass2((v) => !v)}
@@ -282,6 +302,13 @@ export default function RegisterScreen({ navigation }) {
   );
 }
 
+/* ───────── helpers ───────── */
+
+const INPUT_VPAD = 12;
+const INPUT_FONT = 16;
+const INPUT_BORDER = 1;
+const INPUT_HEIGHT = INPUT_VPAD * 2 + INPUT_FONT + INPUT_BORDER * 2;
+
 function makeStyles(tokens, insets, kbOpen) {
   const cardBg =
     tokens?.scheme === "dark"
@@ -320,7 +347,6 @@ function makeStyles(tokens, insets, kbOpen) {
       padding: 22,
       borderWidth: 1,
       borderColor: border,
-
       shadowColor: tokens.shadowColor || "#000",
       shadowOpacity: 0.25,
       shadowRadius: 22,
@@ -345,34 +371,47 @@ function makeStyles(tokens, insets, kbOpen) {
       marginTop: 6,
       marginBottom: 6,
     },
-    infoText: { color: tokens.text, fontWeight: "900", textAlign: "center" },
+
+    infoText: {
+      color: tokens.text,
+      fontWeight: "900",
+      textAlign: "center",
+    },
 
     input: {
-      borderWidth: 1,
+      borderWidth: INPUT_BORDER,
       borderColor: border,
       backgroundColor: "rgba(0,0,0,0.10)",
       borderRadius: 14,
       paddingHorizontal: 14,
-      paddingVertical: 12,
-      fontSize: 16,
+      paddingVertical: INPUT_VPAD,
+      fontSize: INPUT_FONT,
       color: tokens.text,
       marginTop: 10,
     },
 
-    passRow: { position: "relative", marginTop: 10 },
-    passInput: { marginTop: 0, paddingRight: 110 },
+    passRow: {
+      position: "relative",
+      marginTop: 10,
+    },
+
+    passInput: {
+      marginTop: 0,
+      paddingRight: 110,
+    },
 
     eyeBtn: {
       position: "absolute",
       right: 12,
       top: 0,
-      height: 48,
+      height: INPUT_HEIGHT,
       justifyContent: "center",
+      alignItems: "center",
     },
+
     eyeText: {
       fontWeight: "900",
       color: tokens.text,
-      fontFamily: Platform.OS === "web" ? "system-ui" : undefined,
     },
   });
 }
