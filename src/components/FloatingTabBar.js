@@ -240,7 +240,7 @@ function makeStyles(tokens, isDark, bottomInset) {
   const labelOn = isDark ? "rgba(255,255,255,0.98)" : "rgba(15,23,42,0.95)";
   const labelOff = isDark ? "rgba(255,255,255,0.70)" : "rgba(15,23,42,0.50)";
 
-  const bottom = Math.max(bottomInset - 1, 0);
+  const bottom = Math.max(bottomInset - 35, 0);
 
   return StyleSheet.create({
     wrap: {

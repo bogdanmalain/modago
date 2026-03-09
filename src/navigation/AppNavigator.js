@@ -61,9 +61,16 @@ function getActiveRouteName(state) {
   return route.name;
 }
 
+const HIDDEN_TABBAR_ROUTES = new Set([
+  ROUTES.ItemDetails,
+  ROUTES.EditItem,
+  ROUTES.Favorites,
+  ROUTES.ThemeSettings,
+]);
+
 /**
- * MOBILE: Tabs = navigator principal (tabbar rămâne peste tot)
- * (ATENȚIE: ImageViewer NU mai e aici — e modal în MobileRootStack)
+ * MOBILE: Tabs = navigator principal
+ * ImageViewer NU e aici — e modal în MobileRootStack
  */
 function MobileTabs() {
   const { tokens } = useContext(ThemeContext);
@@ -71,7 +78,11 @@ function MobileTabs() {
 
   return (
     <Tab.Navigator
-      tabBar={(props) => <FloatingTabBar {...props} />}
+      tabBar={(props) => {
+        const activeRoute = props?.state?.routes?.[props?.state?.index]?.name;
+        if (HIDDEN_TABBAR_ROUTES.has(activeRoute)) return null;
+        return <FloatingTabBar {...props} />;
+      }}
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
@@ -91,7 +102,7 @@ function MobileTabs() {
       <Tab.Screen name={ROUTES.Inbox} component={InboxScreen} />
       <Tab.Screen name={ROUTES.Profile} component={ProfileScreen} />
 
-      {/* Hidden screens (rămân în tabs ca înainte) */}
+      {/* Hidden from tab buttons + hidden tabbar when active */}
       <Tab.Screen
         name={ROUTES.ItemDetails}
         component={ItemDetailsScreen}
@@ -122,8 +133,7 @@ function MobileTabs() {
 }
 
 /**
- * MOBILE ROOT: Tabs + ImageViewer ca MODAL (nu schimbă tab-ul)
- * => swipe up/down nu te mai aruncă în Home
+ * MOBILE ROOT: Tabs + ImageViewer ca MODAL
  */
 function MobileRootStack() {
   return (
