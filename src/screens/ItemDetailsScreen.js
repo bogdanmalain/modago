@@ -4,7 +4,11 @@
 // - scos complet caruselul de thumbnails de sub imagine
 // - păstrat swipe pe hero
 // - păstrate dots pe imagine
-// - favorite rămâne singur sub hero, fără să se mai încalce cu pozele
+// - favorite mutat direct peste hero, în dreapta jos
+// - scos complet favBar de sub imagine
+// - dots mutate puțin mai la stânga/jos ca să nu se bată cu inima
+// - scos ownerRow (Editare / Ștergere) din ItemDetailsScreen
+// - FIX: dacă anunțul a fost deschis din MyItems, back revine explicit în MyItems
 // - restul logicii rămâne neschimbată
 
 import React, {
@@ -23,7 +27,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Pressable,
-  Alert,
   Dimensions,
   Animated,
   Share,
@@ -35,7 +38,6 @@ import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import {
-  deleteItemById,
   fetchMoreFromSeller,
   fetchSimilarItems,
 } from "../services/itemsService";
@@ -115,6 +117,7 @@ export default function ItemDetailsScreen({ navigation, route }) {
   );
 
   const passedItem = route?.params?.item || null;
+  const fromMyItems = route?.params?.fromMyItems === true;
 
   const [session, setSession] = useState(null);
   const [sessionReady, setSessionReady] = useState(false);
@@ -154,11 +157,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
 
   const itemId = useMemo(() => (item?.id ? String(item.id) : null), [item]);
   const userId = session?.user?.id || null;
-
-  const isOwner = useMemo(() => {
-    if (!userId || !item?.user_id) return false;
-    return String(item.user_id) === String(userId);
-  }, [userId, item?.user_id]);
 
   const [favCount, setFavCount] = useState(0);
   const [isFav, setIsFav] = useState(false);
@@ -268,9 +266,18 @@ export default function ItemDetailsScreen({ navigation, route }) {
   );
 
   const goBackSafe = useCallback(() => {
-    if (navigation?.canGoBack?.()) navigation.goBack();
-    else navigation.navigate(ROUTES.Home);
-  }, [navigation]);
+    if (fromMyItems) {
+      navigation.navigate(ROUTES.MyItems || "MyItems");
+      return;
+    }
+
+    if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate(ROUTES.Home || "Home");
+  }, [fromMyItems, navigation]);
 
   const runPulse = useCallback(() => {
     pulse.setValue(1);
@@ -316,42 +323,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
     }
   }, [userId, itemId, isFav, navigation, loadFavInfo, runPulse]);
 
-  const onDelete = useCallback(async () => {
-    if (!itemId) return;
-
-    Alert.alert("Șterge anunțul?", "Sigur vrei să-l ștergi?", [
-      { text: "Anulează", style: "cancel" },
-      {
-        text: "Șterge",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteItemById(itemId);
-
-            Alert.alert("Șters", "Anunțul a fost șters.", [
-              {
-                text: "OK",
-                onPress: () => {
-                  navigation.navigate(ROUTES.Home, {
-                    deletedItemId: String(itemId),
-                    deletedAt: Date.now(),
-                  });
-                },
-              },
-            ]);
-          } catch (e) {
-            Alert.alert("Eroare", e?.message || "Nu pot șterge anunțul.");
-          }
-        },
-      },
-    ]);
-  }, [itemId, navigation]);
-
-  const onEdit = useCallback(() => {
-    if (!item) return;
-    navigation.navigate(ROUTES.EditItem, { item });
-  }, [navigation, item]);
-
   const onHeroScroll = useCallback(
     (e) => {
       const x = e?.nativeEvent?.contentOffset?.x || 0;
@@ -374,6 +345,7 @@ export default function ItemDetailsScreen({ navigation, route }) {
           images,
           startIndex,
           originUri,
+          fromMyItems,
         });
         return;
       }
@@ -389,18 +361,22 @@ export default function ItemDetailsScreen({ navigation, route }) {
           startIndex,
           origin,
           originUri,
+          fromMyItems,
         });
       });
     },
-    [navigation, images],
+    [navigation, images, fromMyItems],
   );
 
   const openItem = useCallback(
     (nextItem) => {
       if (!nextItem) return;
-      navigation.navigate(ROUTES.ItemDetails, { item: nextItem });
+      navigation.navigate(ROUTES.ItemDetails, {
+        item: nextItem,
+        fromMyItems,
+      });
     },
-    [navigation],
+    [navigation, fromMyItems],
   );
 
   const runPendingShare = useCallback(async () => {
@@ -636,56 +612,37 @@ export default function ItemDetailsScreen({ navigation, route }) {
               ))}
             </View>
           ) : null}
-        </View>
 
-        {/* FAVORITE BAR — thumbnails scoase complet */}
-        <View style={S.favBar}>
-          <View style={{ flex: 1 }} />
-
-          <View style={{ position: "relative" }}>
-            <Pressable onPress={onToggleFav} disabled={favLoading} hitSlop={8}>
-              <Animated.View
-                style={[
-                  S.favCircle,
-                  isFav ? S.favCircleActive : S.favCircleIdle,
-                  { transform: [{ scale: pulse }] },
-                ]}
+          <View style={S.favOverlayWrap}>
+            <View style={{ position: "relative" }}>
+              <Pressable
+                onPress={onToggleFav}
+                disabled={favLoading}
+                hitSlop={8}
               >
-                {!isFav ? (
-                  <Text style={S.heartGhost}>♡</Text>
-                ) : (
-                  <Text style={S.heartSolid}>❤</Text>
-                )}
-              </Animated.View>
-            </Pressable>
+                <Animated.View
+                  style={[
+                    S.favCircle,
+                    isFav ? S.favCircleActive : S.favCircleIdle,
+                    { transform: [{ scale: pulse }] },
+                  ]}
+                >
+                  {!isFav ? (
+                    <Text style={S.heartGhost}>♡</Text>
+                  ) : (
+                    <Text style={S.heartSolid}>❤</Text>
+                  )}
+                </Animated.View>
+              </Pressable>
 
-            {favCount > 0 ? (
-              <View style={[S.countPill, { minWidth: dynamicBadgeWidth }]}>
-                <Text style={S.countText}>{countText}</Text>
-              </View>
-            ) : null}
+              {favCount > 0 ? (
+                <View style={[S.countPill, { minWidth: dynamicBadgeWidth }]}>
+                  <Text style={S.countText}>{countText}</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
         </View>
-
-        {isOwner ? (
-          <View style={S.ownerRow}>
-            <TouchableOpacity
-              style={[S.ownerBtn, S.ownerBtnEdit]}
-              onPress={onEdit}
-              activeOpacity={0.9}
-            >
-              <Text style={S.ownerBtnText}>Editează</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[S.ownerBtn, S.ownerBtnDel]}
-              onPress={onDelete}
-              activeOpacity={0.9}
-            >
-              <Text style={S.ownerBtnText}>Șterge</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
 
         <View style={S.contentWrap}>
           <Text style={S.title}>{item.title || "Produs"}</Text>
@@ -916,9 +873,9 @@ function makeStyles(tokens, HERO_H, insets) {
 
     dots: {
       position: "absolute",
-      bottom: 12,
+      bottom: 18,
       left: 0,
-      right: 0,
+      right: 50,
       flexDirection: "row",
       justifyContent: "center",
       gap: 7,
@@ -931,12 +888,11 @@ function makeStyles(tokens, HERO_H, insets) {
     },
     dotActive: { backgroundColor: "rgba(255,255,255,0.95)" },
 
-    favBar: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      backgroundColor: bg,
+    favOverlayWrap: {
+      position: "absolute",
+      right: 16,
+      bottom: 16,
+      zIndex: 12,
     },
 
     favCircle: {
@@ -974,25 +930,6 @@ function makeStyles(tokens, HERO_H, insets) {
       zIndex: 10,
     },
     countText: { color: "#fff", fontSize: 12, fontWeight: "900" },
-
-    ownerRow: {
-      flexDirection: "row",
-      gap: 10,
-      paddingHorizontal: 16,
-      paddingTop: 6,
-      paddingBottom: 8,
-      backgroundColor: bg,
-    },
-    ownerBtn: {
-      flex: 1,
-      height: 44,
-      borderRadius: 12,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    ownerBtnEdit: { backgroundColor: primary },
-    ownerBtnDel: { backgroundColor: danger },
-    ownerBtnText: { color: onPrimary, fontWeight: "900", fontSize: 16 },
 
     contentWrap: {
       padding: 16,
