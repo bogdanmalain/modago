@@ -2,14 +2,10 @@
 // ============================================
 // COMPONENTĂ: MyItemsScreen
 // MODIFICĂRI:
-// - păstrează layout-ul pe listă verticală
-// - FIX: cardul are înălțime fixă, ca să nu se mai rupă layout-ul
-// - imaginea are aceeași înălțime ca cardul
-// - favoritele sunt mutate peste imagine, în dreapta jos
-// - s-a redus spațiul gol din card
-// - titlu / preț / categorie păstrează stilul din Home
-// - butonul „•••” și pill-ul „Activ” păstrează materia tip back button
-// - bottom sheet owner păstrat:
+// - FIX: la revenire pe ecran se reîncarcă lista de anunțuri, nu doar favoritele
+// - FIX: anunțul nou creat apare imediat în MyItems fără logout/login
+// - păstrat layout-ul actual al cardurilor
+// - păstrat bottom sheet owner:
 //    • Editare = primary
 //    • Anulează = primary
 //    • Ștergere = danger
@@ -183,6 +179,7 @@ export default function MyItemsScreen({ navigation, route }) {
       try {
         const arr = Array.isArray(list) ? list : [];
         const ids = arr.map((it) => String(it.id));
+
         if (ids.length === 0) {
           setFavCounts({});
           setMyFavMap({});
@@ -247,9 +244,8 @@ export default function MyItemsScreen({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
-      if (items?.length > 0) refreshFavsForList(items);
-      else loadItems();
-    }, [items, refreshFavsForList, loadItems]),
+      loadItems();
+    }, [loadItems]),
   );
 
   useEffect(() => {
@@ -276,6 +272,68 @@ export default function MyItemsScreen({ navigation, route }) {
 
     navigation.setParams?.({ deletedItemId: undefined });
   }, [navigation, route?.params?.deletedItemId]);
+
+  useEffect(() => {
+    const createdItem = route?.params?.createdItem;
+    const createdItemId = route?.params?.createdItemId;
+    const createdAt = route?.params?.createdAt;
+    if (!createdAt) return;
+
+    if (
+      createdItem &&
+      typeof createdItem === "object" &&
+      createdItem.id != null
+    ) {
+      const newId = String(createdItem.id);
+
+      setItems((prev) => {
+        const arr = Array.isArray(prev) ? prev : [];
+        if (arr.some((it) => String(it?.id) === newId)) return arr;
+        return [createdItem, ...arr];
+      });
+
+      setFavCounts((prev) => ({
+        ...(prev || {}),
+        [newId]: prev?.[newId] ?? 0,
+      }));
+
+      setMyFavMap((prev) => {
+        const next = { ...(prev || {}) };
+        if (next[newId] == null) next[newId] = false;
+        return next;
+      });
+
+      navigation.setParams?.({
+        createdItem: undefined,
+        createdItemId: undefined,
+        createdAt: undefined,
+      });
+      return;
+    }
+
+    if (createdItemId) {
+      loadItems().finally(() => {
+        navigation.setParams?.({
+          createdItem: undefined,
+          createdItemId: undefined,
+          createdAt: undefined,
+        });
+      });
+      return;
+    }
+
+    navigation.setParams?.({
+      createdItem: undefined,
+      createdItemId: undefined,
+      createdAt: undefined,
+    });
+  }, [
+    route?.params?.createdItem,
+    route?.params?.createdItemId,
+    route?.params?.createdAt,
+    navigation,
+    loadItems,
+  ]);
 
   useEffect(() => {
     const updatedItem = route?.params?.updatedItem;
@@ -320,7 +378,14 @@ export default function MyItemsScreen({ navigation, route }) {
           updatedAt: undefined,
         });
       });
+      return;
     }
+
+    navigation.setParams?.({
+      updatedItem: undefined,
+      updatedItemId: undefined,
+      updatedAt: undefined,
+    });
   }, [
     route?.params?.updatedItem,
     route?.params?.updatedItemId,
@@ -449,10 +514,7 @@ export default function MyItemsScreen({ navigation, route }) {
       try {
         setDeletingId(item.id);
 
-        const { error } = await supabase
-          .from("items")
-          .delete()
-          .eq("id", item.id);
+        const { error } = await supabase.from("items").delete().eq("id", item.id);
         if (error) throw error;
 
         setItems((prev) =>
@@ -563,7 +625,10 @@ export default function MyItemsScreen({ navigation, route }) {
 
                 {favCount > 0 ? (
                   <View
-                    style={[styles.countPill, { minWidth: dynamicBadgeWidth }]}
+                    style={[
+                      styles.countPill,
+                      { minWidth: dynamicBadgeWidth },
+                    ]}
                   >
                     <Text style={styles.countText}>{countText}</Text>
                   </View>
@@ -593,7 +658,9 @@ export default function MyItemsScreen({ navigation, route }) {
 
             <View style={styles.bottomRow}>
               <View style={styles.categoryPill}>
-                <Text style={styles.categoryText}>{item?.category || "—"}</Text>
+                <Text style={styles.categoryText}>
+                  {item?.category || "—"}
+                </Text>
               </View>
 
               <View style={styles.rightBottomCol}>

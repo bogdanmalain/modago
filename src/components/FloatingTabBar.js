@@ -6,6 +6,10 @@
 //   • ItemDetails
 //   • AddItem
 //   • EditItem
+// - FIX: toate hooks rulează înainte de orice return null
+// - FIX: poziția pe verticală poate fi ajustată per route
+//   • Home / Search / Inbox / Profile rămân la offset normal
+//   • MyItems este coborât puțin mai jos
 // - restul comportamentului rămâne neschimbat
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
@@ -65,14 +69,20 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
     };
   }, []);
 
-  const S = useMemo(
-    () => makeStyles(tokens, isDark, insets.bottom),
-    [tokens, isDark, insets.bottom],
-  );
-
   const routes = Array.isArray(state?.routes) ? state.routes : [];
   const activeIndex = typeof state?.index === "number" ? state.index : 0;
   const activeRouteName = routes?.[activeIndex]?.name || "";
+
+  // offset per route
+  const tabBottom = Math.max(
+    insets.bottom - (activeRouteName === ROUTES.MyItems ? 43 : 35),
+    0,
+  );
+
+  const S = useMemo(
+    () => makeStyles(tokens, isDark, tabBottom),
+    [tokens, isDark, tabBottom],
+  );
 
   // Ascunde tabbar-ul pe ecranele full-screen / secundare unde nu o vrem
   const hiddenRoutes = [
@@ -81,6 +91,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
     ROUTES.AddItem,
     ROUTES.EditItem,
   ];
+
   if (hiddenRoutes.includes(activeRouteName)) return null;
 
   const wanted = ["Home", "Search", "AddItem", "Inbox", "Profile"];
@@ -222,25 +233,29 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
   );
 }
 
-function makeStyles(tokens, isDark, bottomInset) {
+function makeStyles(tokens, isDark, bottom) {
   const text = pickTok(tokens, "text", isDark ? "#E5E7EB" : "#0B1220");
   const muted = pickTok(tokens, "muted", isDark ? "#8F98AA" : "#374151");
   const primary = pickTok(tokens, "primary", isDark ? "#60A5FA" : "#2563EB");
   const card = pickTok(tokens, "card", isDark ? "#111A2E" : "#FFFFFF");
 
   const border = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.10)";
-  const overlay = isDark ? "rgba(10, 16, 28, 0.22)" : "rgba(255,255,255,0.01)";
+  const overlay = isDark
+    ? "rgba(10, 16, 28, 0.22)"
+    : "rgba(255,255,255,0.01)";
 
-  const pillFill = isDark ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.55)";
-  const pillBorder = isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.14)";
+  const pillFill = isDark
+    ? "rgba(255,255,255,0.14)"
+    : "rgba(255,255,255,0.55)";
+  const pillBorder = isDark
+    ? "rgba(255,255,255,0.22)"
+    : "rgba(0,0,0,0.14)";
 
   const iconOn = isDark ? "rgba(255,255,255,0.98)" : "rgba(15,23,42,0.95)";
   const iconOff = isDark ? "rgba(255,255,255,0.70)" : "rgba(15,23,42,0.55)";
 
   const labelOn = isDark ? "rgba(255,255,255,0.98)" : "rgba(15,23,42,0.95)";
   const labelOff = isDark ? "rgba(255,255,255,0.70)" : "rgba(15,23,42,0.50)";
-
-  const bottom = Math.max(bottomInset - 35, 0);
 
   return StyleSheet.create({
     wrap: {
