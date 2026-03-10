@@ -4,6 +4,8 @@
 // MODIFICĂRI:
 // - FIX: la revenire pe ecran se reîncarcă lista de anunțuri, nu doar favoritele
 // - FIX: anunțul nou creat apare imediat în MyItems fără logout/login
+// - FIX: back din MyItems merge corect către tab-ul Profile în noua structură de navigator
+// - POLISH: favorite overlay mai contrastant peste imagine
 // - păstrat layout-ul actual al cardurilor
 // - păstrat bottom sheet owner:
 //    • Editare = primary
@@ -135,9 +137,9 @@ export default function MyItemsScreen({ navigation, route }) {
 
       imageBg: isDark ? "rgba(255,255,255,0.04)" : "#F3F4F6",
 
-      glassBg: isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.92)",
-      glassBorder: isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.08)",
-      glassText: isDark ? "rgba(255,255,255,0.90)" : "rgba(0,0,0,0.75)",
+      glassBg: isDark ? "rgba(10,14,22,0.34)" : "rgba(10,14,22,0.18)",
+      glassBorder: isDark ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.42)",
+      glassText: isDark ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.96)",
 
       categoryBg: `${primary}30`,
       categoryBorder: `${primary}50`,
@@ -514,7 +516,10 @@ export default function MyItemsScreen({ navigation, route }) {
       try {
         setDeletingId(item.id);
 
-        const { error } = await supabase.from("items").delete().eq("id", item.id);
+        const { error } = await supabase
+          .from("items")
+          .delete()
+          .eq("id", item.id);
         if (error) throw error;
 
         setItems((prev) =>
@@ -615,7 +620,7 @@ export default function MyItemsScreen({ navigation, route }) {
                     <Text
                       style={[
                         styles.favHeart,
-                        { color: isFav ? colors.danger : colors.muted },
+                        { color: isFav ? colors.danger : colors.glassText },
                       ]}
                     >
                       {isFav ? "❤" : "♡"}
@@ -625,10 +630,7 @@ export default function MyItemsScreen({ navigation, route }) {
 
                 {favCount > 0 ? (
                   <View
-                    style={[
-                      styles.countPill,
-                      { minWidth: dynamicBadgeWidth },
-                    ]}
+                    style={[styles.countPill, { minWidth: dynamicBadgeWidth }]}
                   >
                     <Text style={styles.countText}>{countText}</Text>
                   </View>
@@ -658,9 +660,7 @@ export default function MyItemsScreen({ navigation, route }) {
 
             <View style={styles.bottomRow}>
               <View style={styles.categoryPill}>
-                <Text style={styles.categoryText}>
-                  {item?.category || "—"}
-                </Text>
+                <Text style={styles.categoryText}>{item?.category || "—"}</Text>
               </View>
 
               <View style={styles.rightBottomCol}>
@@ -684,7 +684,7 @@ export default function MyItemsScreen({ navigation, route }) {
     },
     [
       colors.danger,
-      colors.muted,
+      colors.glassText,
       colors.primary,
       deletingId,
       favCounts,
@@ -699,13 +699,14 @@ export default function MyItemsScreen({ navigation, route }) {
 
   const keyExtractor = useCallback((item) => String(item.id), []);
 
+  const goBackToProfile = useCallback(() => {
+    navigation.navigate("TabsRoot", { screen: ROUTES.Profile });
+  }, [navigation]);
+
   if (loading) {
     return (
       <View style={styles.screen}>
-        <ScreenHeader
-          title="Anunțurile mele"
-          onBack={() => navigation.navigate(ROUTES.Profile || "Profile")}
-        />
+        <ScreenHeader title="Anunțurile mele" onBack={goBackToProfile} />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
@@ -715,10 +716,7 @@ export default function MyItemsScreen({ navigation, route }) {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader
-        title="Anunțurile mele"
-        onBack={() => navigation.navigate(ROUTES.Profile || "Profile")}
-      />
+      <ScreenHeader title="Anunțurile mele" onBack={goBackToProfile} />
 
       <FlatList
         data={items}
@@ -983,13 +981,13 @@ function createStyles({ colors, insets, isDark }) {
       borderRadius: FAV_ICON / 2,
       alignItems: "center",
       justifyContent: "center",
-      borderWidth: 1,
+      borderWidth: 1.5,
       backgroundColor: colors.glassBg,
       borderColor: colors.glassBorder,
     },
 
     favHeart: {
-      fontSize: 20,
+      fontSize: 21,
       fontWeight: "900",
     },
 

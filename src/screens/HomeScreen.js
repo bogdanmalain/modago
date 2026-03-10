@@ -3,6 +3,8 @@
 // MODIFICARE:
 // - scos complet imagesCount din cardurile de Home
 // - nu se mai trimite numărul de poze nici la light, nici la dark
+// - FIX: la revenire pe Home se reîncarcă lista cu keepScroll
+// - FIX: refresh-ul la focus este silențios (fără loader mare pe ecran)
 // - restul logicii rămâne neschimbată
 
 import React, {
@@ -126,9 +128,11 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
   );
 
   const loadItems = useCallback(
-    async ({ keepScroll = false } = {}) => {
-      setErrorMsg("");
-      setLoading(true);
+    async ({ keepScroll = false, silent = false } = {}) => {
+      if (!silent) {
+        setErrorMsg("");
+        setLoading(true);
+      }
 
       const prevOffset = scrollOffsetRef.current || 0;
 
@@ -155,7 +159,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
         setFavCounts({});
         setMyFavMap({});
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
     },
     [refreshFavsForList],
@@ -167,9 +171,8 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
 
   useFocusEffect(
     useCallback(() => {
-      if (items && items.length > 0) refreshFavsForList(items);
-      else loadItems();
-    }, [items, refreshFavsForList, loadItems]),
+      loadItems({ keepScroll: true, silent: true });
+    }, [loadItems]),
   );
 
   useEffect(() => {
@@ -237,7 +240,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
     }
 
     if (createdItemId) {
-      loadItems({ keepScroll: true }).finally(() => {
+      loadItems({ keepScroll: true, silent: true }).finally(() => {
         navigation.setParams({
           createdItem: undefined,
           createdItemId: undefined,
@@ -296,7 +299,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
     }
 
     if (updatedItemId) {
-      loadItems({ keepScroll: true }).finally(() => {
+      loadItems({ keepScroll: true, silent: true }).finally(() => {
         navigation.setParams({
           updatedItem: undefined,
           updatedItemId: undefined,
@@ -594,7 +597,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
           <Text style={styles.errorText}>{errorMsg}</Text>
           <TouchableOpacity
             style={[styles.retryBtn, { backgroundColor: tokens.primary }]}
-            onPress={() => loadItems({ keepScroll: false })}
+            onPress={() => loadItems({ keepScroll: false, silent: false })}
             activeOpacity={0.9}
           >
             <Text style={styles.retryText}>Reîncearcă</Text>

@@ -1,4 +1,15 @@
 // src/navigation/AppNavigator.js
+// COMPONENTĂ: AppNavigator
+// MODIFICARE:
+// - MOBILE: ItemDetails, EditItem, MyItems, Favorites, ThemeSettings au fost scoase din Tab.Navigator
+// - MOBILE: aceste ecrane sunt acum în MobileRootStack, peste TabsRoot
+// - rezultat:
+//   • tabbar rămâne doar pe tab-urile reale
+//   • ecranele secundare se deschid ca stack screens
+//   • ItemDetails este pregătit pentru tranziție tip push din dreapta
+// - ImageViewer rămâne modal separat
+// - WEB rămâne neschimbat ca structură de stack
+
 import React, {
   useEffect,
   useMemo,
@@ -61,16 +72,8 @@ function getActiveRouteName(state) {
   return route.name;
 }
 
-const HIDDEN_TABBAR_ROUTES = new Set([
-  ROUTES.ItemDetails,
-  ROUTES.EditItem,
-  ROUTES.Favorites,
-  ROUTES.ThemeSettings,
-]);
-
 /**
- * MOBILE: Tabs = navigator principal
- * ImageViewer NU e aici — e modal în MobileRootStack
+ * MOBILE: doar tab-urile reale
  */
 function MobileTabs() {
   const { tokens } = useContext(ThemeContext);
@@ -78,11 +81,7 @@ function MobileTabs() {
 
   return (
     <Tab.Navigator
-      tabBar={(props) => {
-        const activeRoute = props?.state?.routes?.[props?.state?.index]?.name;
-        if (HIDDEN_TABBAR_ROUTES.has(activeRoute)) return null;
-        return <FloatingTabBar {...props} />;
-      }}
+      tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
@@ -101,44 +100,65 @@ function MobileTabs() {
       <Tab.Screen name={ROUTES.AddItem} component={AddItemScreen} />
       <Tab.Screen name={ROUTES.Inbox} component={InboxScreen} />
       <Tab.Screen name={ROUTES.Profile} component={ProfileScreen} />
-
-      {/* Hidden from tab buttons + hidden tabbar when active */}
-      <Tab.Screen
-        name={ROUTES.ItemDetails}
-        component={ItemDetailsScreen}
-        options={{ tabBarButton: () => null }}
-      />
-      <Tab.Screen
-        name={ROUTES.EditItem}
-        component={EditItemScreen}
-        options={{ tabBarButton: () => null }}
-      />
-      <Tab.Screen
-        name={ROUTES.MyItems}
-        component={MyItemsScreen}
-        options={{ tabBarButton: () => null }}
-      />
-      <Tab.Screen
-        name={ROUTES.Favorites}
-        component={FavoritesScreen}
-        options={{ tabBarButton: () => null }}
-      />
-      <Tab.Screen
-        name={ROUTES.ThemeSettings}
-        component={ThemeSettingsScreen}
-        options={{ tabBarButton: () => null }}
-      />
     </Tab.Navigator>
   );
 }
 
 /**
- * MOBILE ROOT: Tabs + ImageViewer ca MODAL
+ * MOBILE ROOT:
+ * - TabsRoot jos
+ * - ecranele secundare sus, ca stack
+ * - ImageViewer rămâne modal
  */
 function MobileRootStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: "slide_from_right",
+      }}
+    >
       <Stack.Screen name="TabsRoot" component={MobileTabs} />
+
+      <Stack.Screen
+        name={ROUTES.ItemDetails}
+        component={ItemDetailsScreen}
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+
+      <Stack.Screen
+        name={ROUTES.EditItem}
+        component={EditItemScreen}
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+
+      <Stack.Screen
+        name={ROUTES.MyItems}
+        component={MyItemsScreen}
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+
+      <Stack.Screen
+        name={ROUTES.Favorites}
+        component={FavoritesScreen}
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+
+      <Stack.Screen
+        name={ROUTES.ThemeSettings}
+        component={ThemeSettingsScreen}
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
 
       <Stack.Screen
         name={ROUTES.ImageViewer}

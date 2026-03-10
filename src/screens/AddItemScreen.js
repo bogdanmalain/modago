@@ -2,6 +2,9 @@
 // MODIFICARE:
 // - back button folosește acum componenta reutilizabilă HeaderBackButton
 // - păstrează stilul din ThemeSettings
+// - FIX: scos KeyboardAvoidingView (ridica tot ecranul)
+// - FIX: tastatura se închide când utilizatorul începe să facă scroll
+// - comportament dorit: dispare tastatura, nu se mută tot formularul
 
 import React, {
   useCallback,
@@ -21,6 +24,7 @@ import {
   Image,
   ScrollView,
   Platform,
+  Keyboard,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -301,10 +305,12 @@ export default function AddItemScreen({ navigation }) {
           S.page,
           {
             paddingTop: insets.top + 10 + HEADER_BACK_SIZE + 18,
-            paddingBottom: Math.max(insets.bottom, 16) + 18,
+            paddingBottom: Math.max(insets.bottom, 16) + 140,
           },
         ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        onScrollBeginDrag={Keyboard.dismiss}
         showsVerticalScrollIndicator={false}
       >
         <Text style={S.h1}>Adaugă un produs</Text>

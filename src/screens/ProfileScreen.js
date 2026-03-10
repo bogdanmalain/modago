@@ -2,13 +2,14 @@
  * ================================
  * PROFILESCREEN
  * ================================
- * Review aplicat:
- * -> sessionReady în loc de authReady (consistență cu restul app-ului)
- * -> scos apelul dublu loadCounts (focus listener e suficient)
- * -> scos `scheme` nefolosit din destructurare
- * -> ActivityIndicator theme-aware
- * -> ensureLogged simplu (fără navigate la login — gestionat de AppNavigator)
- * -> simplificat countsText
+ * MODIFICĂRI:
+ * -> FIX: count-urile se încarcă și imediat după ce sesiunea devine disponibilă
+ * -> păstrat refresh și la focus
+ * -> prima logare afișează corect Anunțurile mele / Favorite fără să mai intri pe alt ecran
+ * -> FIX: navigarea folosește noua structură de stack
+ *    • MyItems / Favorites / ThemeSettings nu mai sunt în TabsRoot
+ *    • butoanele funcționează din nou
+ * -> restul logicii rămâne neschimbată
  */
 
 import React, {
@@ -26,6 +27,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
@@ -48,6 +50,7 @@ export default function ProfileScreen({ navigation }) {
   const [sessionReady, setSessionReady] = useState(false);
 
   const user = session?.user || null;
+  const userId = user?.id || null;
 
   const [loadingCounts, setLoadingCounts] = useState(true);
   const [myItemsCount, setMyItemsCount] = useState(null);
@@ -83,14 +86,12 @@ export default function ProfileScreen({ navigation }) {
 
   /* ── counts ── */
   const loadCounts = useCallback(async () => {
-    const uid = user?.id;
-
     if (!sessionReady) {
       setLoadingCounts(true);
       return;
     }
 
-    if (!uid) {
+    if (!userId) {
       setMyItemsCount(null);
       setFavCount(null);
       setLoadingCounts(false);
@@ -100,8 +101,8 @@ export default function ProfileScreen({ navigation }) {
     setLoadingCounts(true);
     try {
       const [myItems, favItems] = await Promise.all([
-        fetchMyItems(uid),
-        fetchFavoriteItems(uid),
+        fetchMyItems(userId),
+        fetchFavoriteItems(userId),
       ]);
 
       setMyItemsCount(Array.isArray(myItems) ? myItems.length : 0);
@@ -113,27 +114,34 @@ export default function ProfileScreen({ navigation }) {
     } finally {
       setLoadingCounts(false);
     }
-  }, [user?.id, sessionReady]);
+  }, [userId, sessionReady]);
 
-  /* focus listener se declanșează și la mount — nu mai apelăm loadCounts() separat */
+  /* FIX: când sesiunea devine disponibilă după login, încărcăm count-urile */
   useEffect(() => {
-    const unsub = navigation.addListener("focus", loadCounts);
-    return unsub;
-  }, [navigation, loadCounts]);
+    if (!sessionReady) return;
+    loadCounts();
+  }, [sessionReady, userId, loadCounts]);
+
+  /* Refresh la focus */
+  useFocusEffect(
+    useCallback(() => {
+      loadCounts();
+    }, [loadCounts]),
+  );
 
   /* ── navigare ── */
   const goMyItems = useCallback(() => {
     if (!sessionReady || !user) return;
-    navigation.navigate("TabsRoot", { screen: ROUTES.MyItems });
+    navigation.navigate(ROUTES.MyItems);
   }, [sessionReady, user, navigation]);
 
   const goFavorites = useCallback(() => {
     if (!sessionReady || !user) return;
-    navigation.navigate("TabsRoot", { screen: ROUTES.Favorites });
+    navigation.navigate(ROUTES.Favorites);
   }, [sessionReady, user, navigation]);
 
   const goThemeSettings = useCallback(() => {
-    navigation.navigate("TabsRoot", { screen: ROUTES.ThemeSettings });
+    navigation.navigate(ROUTES.ThemeSettings);
   }, [navigation]);
 
   const goSell = useCallback(() => {

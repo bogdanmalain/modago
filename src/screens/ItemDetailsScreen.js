@@ -7,8 +7,10 @@
 // - favorite mutat direct peste hero, în dreapta jos
 // - scos complet favBar de sub imagine
 // - dots mutate puțin mai la stânga/jos ca să nu se bată cu inima
-// - scos ownerRow (Editare / Ștergere) din ItemDetailsScreen
-// - FIX: dacă anunțul a fost deschis din MyItems, back revine explicit în MyItems
+// - FIX: item NU mai este ținut în state local
+// - FIX: ecranul citește direct route.params.item, ca să nu mai facă flash cu poza veche
+// - FIX: la schimbarea item-ului se resetează doar UI-ul local (scroll, dots, menu)
+// - POLISH: favorite overlay mai contrastant pe imagini luminoase / întunecate
 // - restul logicii rămâne neschimbată
 
 import React, {
@@ -27,6 +29,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Pressable,
+  Alert,
   Dimensions,
   Animated,
   Share,
@@ -38,6 +41,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import {
+  deleteItemById,
   fetchMoreFromSeller,
   fetchSimilarItems,
 } from "../services/itemsService";
@@ -116,15 +120,12 @@ export default function ItemDetailsScreen({ navigation, route }) {
     [tokens, HERO_H, insets],
   );
 
-  const passedItem = route?.params?.item || null;
-  const fromMyItems = route?.params?.fromMyItems === true;
+  const item = route?.params?.item || null;
 
   const [session, setSession] = useState(null);
   const [sessionReady, setSessionReady] = useState(false);
 
-  const [item, setItem] = useState(passedItem);
   const [menuVisible, setMenuVisible] = useState(false);
-
   const pendingSharePayloadRef = useRef(null);
 
   const heroScrollRef = useRef(null);
@@ -137,26 +138,24 @@ export default function ItemDetailsScreen({ navigation, route }) {
   const [similarItems, setSimilarItems] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      const fresh = route?.params?.item || null;
-      setItem(fresh);
-      setActiveIndex(0);
-      setMenuVisible(false);
-      pendingSharePayloadRef.current = null;
-      scrollY.setValue(0);
-      try {
-        heroScrollRef.current?.scrollTo?.({ x: 0, y: 0, animated: false });
-      } catch {}
-    }, [route?.params?.item, scrollY]),
-  );
-
   useEffect(() => {
-    setItem(passedItem);
-  }, [passedItem]);
+    setActiveIndex(0);
+    setMenuVisible(false);
+    pendingSharePayloadRef.current = null;
+    scrollY.setValue(0);
+
+    try {
+      heroScrollRef.current?.scrollTo?.({ x: 0, y: 0, animated: false });
+    } catch {}
+  }, [route?.params?.item?.id, scrollY]);
 
   const itemId = useMemo(() => (item?.id ? String(item.id) : null), [item]);
   const userId = session?.user?.id || null;
+
+  const isOwner = useMemo(() => {
+    if (!userId || !item?.user_id) return false;
+    return String(item.user_id) === String(userId);
+  }, [userId, item?.user_id]);
 
   const [favCount, setFavCount] = useState(0);
   const [isFav, setIsFav] = useState(false);
@@ -266,18 +265,9 @@ export default function ItemDetailsScreen({ navigation, route }) {
   );
 
   const goBackSafe = useCallback(() => {
-    if (fromMyItems) {
-      navigation.navigate(ROUTES.MyItems || "MyItems");
-      return;
-    }
-
-    if (navigation?.canGoBack?.()) {
-      navigation.goBack();
-      return;
-    }
-
-    navigation.navigate(ROUTES.Home || "Home");
-  }, [fromMyItems, navigation]);
+    if (navigation?.canGoBack?.()) navigation.goBack();
+    else navigation.navigate(ROUTES.Home);
+  }, [navigation]);
 
   const runPulse = useCallback(() => {
     pulse.setValue(1);
@@ -323,6 +313,42 @@ export default function ItemDetailsScreen({ navigation, route }) {
     }
   }, [userId, itemId, isFav, navigation, loadFavInfo, runPulse]);
 
+  const onDelete = useCallback(async () => {
+    if (!itemId) return;
+
+    Alert.alert("Șterge anunțul?", "Sigur vrei să-l ștergi?", [
+      { text: "Anulează", style: "cancel" },
+      {
+        text: "Șterge",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteItemById(itemId);
+
+            Alert.alert("Șters", "Anunțul a fost șters.", [
+              {
+                text: "OK",
+                onPress: () => {
+                  navigation.navigate(ROUTES.Home, {
+                    deletedItemId: String(itemId),
+                    deletedAt: Date.now(),
+                  });
+                },
+              },
+            ]);
+          } catch (e) {
+            Alert.alert("Eroare", e?.message || "Nu pot șterge anunțul.");
+          }
+        },
+      },
+    ]);
+  }, [itemId, navigation]);
+
+  const onEdit = useCallback(() => {
+    if (!item) return;
+    navigation.navigate(ROUTES.EditItem, { item });
+  }, [navigation, item]);
+
   const onHeroScroll = useCallback(
     (e) => {
       const x = e?.nativeEvent?.contentOffset?.x || 0;
@@ -345,7 +371,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
           images,
           startIndex,
           originUri,
-          fromMyItems,
         });
         return;
       }
@@ -361,22 +386,18 @@ export default function ItemDetailsScreen({ navigation, route }) {
           startIndex,
           origin,
           originUri,
-          fromMyItems,
         });
       });
     },
-    [navigation, images, fromMyItems],
+    [navigation, images],
   );
 
   const openItem = useCallback(
     (nextItem) => {
       if (!nextItem) return;
-      navigation.navigate(ROUTES.ItemDetails, {
-        item: nextItem,
-        fromMyItems,
-      });
+      navigation.navigate(ROUTES.ItemDetails, { item: nextItem });
     },
-    [navigation, fromMyItems],
+    [navigation],
   );
 
   const runPendingShare = useCallback(async () => {
@@ -644,6 +665,26 @@ export default function ItemDetailsScreen({ navigation, route }) {
           </View>
         </View>
 
+        {isOwner ? (
+          <View style={S.ownerRow}>
+            <TouchableOpacity
+              style={[S.ownerBtn, S.ownerBtnEdit]}
+              onPress={onEdit}
+              activeOpacity={0.9}
+            >
+              <Text style={S.ownerBtnText}>Editează</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[S.ownerBtn, S.ownerBtnDel]}
+              onPress={onDelete}
+              activeOpacity={0.9}
+            >
+              <Text style={S.ownerBtnText}>Șterge</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         <View style={S.contentWrap}>
           <Text style={S.title}>{item.title || "Produs"}</Text>
 
@@ -759,18 +800,18 @@ function makeStyles(tokens, HERO_H, insets) {
     : "rgba(0,0,0,0.08)";
   const overlayBg = isDark ? "rgba(0,0,0,0.28)" : "rgba(15,23,42,0.14)";
 
-  const favIdleBg = pickTok(tokens, "favIdleBg", "rgba(255,255,255,0.06)");
+  const favIdleBg = pickTok(tokens, "favIdleBg", "rgba(10,14,22,0.34)");
   const favIdleBorder = pickTok(
     tokens,
     "favIdleBorder",
-    "rgba(255,255,255,0.14)",
+    "rgba(255,255,255,0.22)",
   );
-  const favGhost = pickTok(tokens, "favGhost", "rgba(255,255,255,0.75)");
-  const favActiveBg = pickTok(tokens, "favActiveBg", "rgba(255,255,255,0.95)");
+  const favGhost = pickTok(tokens, "favGhost", "rgba(255,255,255,0.96)");
+  const favActiveBg = pickTok(tokens, "favActiveBg", "rgba(255,255,255,0.94)");
   const favActiveBorder = pickTok(
     tokens,
     "favActiveBorder",
-    "rgba(255,255,255,0.35)",
+    "rgba(255,255,255,0.42)",
   );
   const badgeBorder = pickTok(tokens, "badgeBorder", "rgba(255,255,255,0.95)");
 
@@ -904,7 +945,7 @@ function makeStyles(tokens, HERO_H, insets) {
     },
     favCircleIdle: {
       backgroundColor: favIdleBg,
-      borderWidth: 1,
+      borderWidth: 1.5,
       borderColor: favIdleBorder,
     },
     favCircleActive: {
@@ -912,8 +953,8 @@ function makeStyles(tokens, HERO_H, insets) {
       borderWidth: 2,
       borderColor: favActiveBorder,
     },
-    heartGhost: { fontSize: 18, color: favGhost, fontWeight: "900" },
-    heartSolid: { fontSize: 18, color: danger, fontWeight: "900" },
+    heartGhost: { fontSize: 19, color: favGhost, fontWeight: "900" },
+    heartSolid: { fontSize: 19, color: danger, fontWeight: "900" },
 
     countPill: {
       position: "absolute",
@@ -930,6 +971,25 @@ function makeStyles(tokens, HERO_H, insets) {
       zIndex: 10,
     },
     countText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+
+    ownerRow: {
+      flexDirection: "row",
+      gap: 10,
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 8,
+      backgroundColor: bg,
+    },
+    ownerBtn: {
+      flex: 1,
+      height: 44,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    ownerBtnEdit: { backgroundColor: primary },
+    ownerBtnDel: { backgroundColor: danger },
+    ownerBtnText: { color: onPrimary, fontWeight: "900", fontSize: 16 },
 
     contentWrap: {
       padding: 16,

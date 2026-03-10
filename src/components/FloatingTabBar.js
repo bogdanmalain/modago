@@ -1,16 +1,16 @@
 // src/components/FloatingTabBar.js
 // COMPONENTĂ: FloatingTabBar
 // MODIFICARE:
-// - fix crash când state este undefined la primul render
-// - tabbar-ul se ascunde pe:
-//   • ItemDetails
-//   • AddItem
-//   • EditItem
-// - FIX: toate hooks rulează înainte de orice return null
-// - FIX: poziția pe verticală poate fi ajustată per route
-//   • Home / Search / Inbox / Profile rămân la offset normal
-//   • MyItems este coborât puțin mai jos
-// - restul comportamentului rămâne neschimbat
+// - compatibil cu navigatorul nou: tabbar-ul rămâne doar pentru tab-urile reale
+// - nu mai ascunde ItemDetails / EditItem etc. din tabbar, pentru că nu mai sunt în tabs
+// - păstrat offset separat pentru MyItems dacă ajunge să fie folosit ca route activă
+// - UI UPDATE:
+//   • bara rămâne albicioasă / curată
+//   • pill-ul activ pe light este mai transparent
+//   • icon + text active rămân theme-aware (primary)
+//   • label-uri schimbate:
+//      • Home -> Acasă
+//      • Inbox -> Mesaje primite
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
 import {
@@ -73,7 +73,6 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
   const activeIndex = typeof state?.index === "number" ? state.index : 0;
   const activeRouteName = routes?.[activeIndex]?.name || "";
 
-  // offset per route
   const tabBottom = Math.max(
     insets.bottom - (activeRouteName === ROUTES.MyItems ? 43 : 35),
     0,
@@ -84,17 +83,13 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
     [tokens, isDark, tabBottom],
   );
 
-  // Ascunde tabbar-ul pe ecranele full-screen / secundare unde nu o vrem
-  const hiddenRoutes = [
-    ROUTES.ImageViewer,
-    ROUTES.ItemDetails,
+  const wanted = [
+    ROUTES.Home,
+    ROUTES.Search,
     ROUTES.AddItem,
-    ROUTES.EditItem,
+    ROUTES.Inbox,
+    ROUTES.Profile,
   ];
-
-  if (hiddenRoutes.includes(activeRouteName)) return null;
-
-  const wanted = ["Home", "Search", "AddItem", "Inbox", "Profile"];
   const visibleRoutes = routes.filter((r) => wanted.includes(r.name));
   const orderedRoutes = wanted
     .map((name) => visibleRoutes.find((r) => r.name === name))
@@ -128,7 +123,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
             navigation.emit({ type: "tabLongPress", target: route.key });
           };
 
-          if (route.name === "AddItem") {
+          if (route.name === ROUTES.AddItem) {
             return (
               <View key={route.key} style={S.centerSlot}>
                 <TouchableOpacity
@@ -141,35 +136,42 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
                   activeOpacity={0.9}
                   style={S.plusBtn}
                 >
-                  <Ionicons name="add" size={26} color="#fff" />
+                  <Ionicons name="add" size={28} color="#fff" />
                 </TouchableOpacity>
               </View>
             );
           }
 
-          const isProfile = route.name === "Profile";
-          const isSearch = route.name === "Search";
-          const isInbox = route.name === "Inbox";
+          const isProfile = route.name === ROUTES.Profile;
+          const isSearch = route.name === ROUTES.Search;
+          const isInbox = route.name === ROUTES.Inbox;
+          const isHome = route.name === ROUTES.Home;
 
           const iconOff = isSearch
             ? "search-outline"
             : isInbox
-              ? "chatbubble-ellipses-outline"
-              : "home-outline";
+              ? "mail-outline"
+              : isProfile
+                ? null
+                : "home-outline";
 
           const iconOn = isSearch
             ? "search"
             : isInbox
-              ? "chatbubble-ellipses"
-              : "home";
+              ? "mail"
+              : isProfile
+                ? null
+                : "home";
 
           const textLabel = isSearch
             ? "Căutare"
             : isInbox
-              ? "Inbox"
+              ? "Mesaje primite"
               : isProfile
                 ? "Profil"
-                : "Home";
+                : isHome
+                  ? "Acasă"
+                  : "Acasă";
 
           return (
             <TouchableOpacity
@@ -180,7 +182,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
               testID={options?.tabBarTestID}
               onPress={onPress}
               onLongPress={onLongPress}
-              activeOpacity={0.85}
+              activeOpacity={0.86}
               style={S.item}
             >
               <View style={[S.pill, isFocused ? S.pillOn : S.pillOff]}>
@@ -201,7 +203,10 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
                   )}
                 </View>
 
-                <Text style={[S.label, isFocused ? S.labelOn : S.labelOff]}>
+                <Text
+                  numberOfLines={1}
+                  style={[S.label, isFocused ? S.labelOn : S.labelOff]}
+                >
                   {textLabel}
                 </Text>
               </View>
@@ -220,9 +225,9 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
         <View style={S.barWeb}>{renderButtons()}</View>
       ) : (
         <BlurView
-          tint={isDark ? "dark" : "light"}
-          intensity={isDark ? 26 : 6}
-          reducedTransparencyFallbackColor="transparent"
+          tint="light"
+          intensity={18}
+          reducedTransparencyFallbackColor="rgba(255,255,255,0.92)"
           style={S.bar}
         >
           <View pointerEvents="none" style={S.glassOverlay} />
@@ -234,28 +239,27 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
 }
 
 function makeStyles(tokens, isDark, bottom) {
-  const text = pickTok(tokens, "text", isDark ? "#E5E7EB" : "#0B1220");
-  const muted = pickTok(tokens, "muted", isDark ? "#8F98AA" : "#374151");
-  const primary = pickTok(tokens, "primary", isDark ? "#60A5FA" : "#2563EB");
+  const muted = pickTok(tokens, "muted", isDark ? "#8F98AA" : "#6B7280");
+  const primary = pickTok(tokens, "primary", "#43C6DB");
   const card = pickTok(tokens, "card", isDark ? "#111A2E" : "#FFFFFF");
+  const bg = pickTok(tokens, "bg", isDark ? "#071224" : "#F3F4F6");
 
-  const border = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.10)";
-  const overlay = isDark
-    ? "rgba(10, 16, 28, 0.22)"
-    : "rgba(255,255,255,0.01)";
+  const border = isDark ? "rgba(0,0,0,0.04)" : "rgba(0,0,0,0.08)";
+  const strongBorder = isDark ? "rgba(255,255,255,0.42)" : "rgba(0,0,0,0.08)";
 
-  const pillFill = isDark
-    ? "rgba(255,255,255,0.14)"
-    : "rgba(255,255,255,0.55)";
+  const overlay = isDark ? "rgba(255,255,255,0.58)" : "rgba(255,255,255,0.78)";
+
+  const pillFill = isDark ? "rgba(255,255,255,0.30)" : "rgba(255,255,255,0)";
+
   const pillBorder = isDark
-    ? "rgba(255,255,255,0.22)"
-    : "rgba(0,0,0,0.14)";
+    ? "rgba(255,255,255,0.52)"
+    : "rgba(255,255,255,0.94)";
 
-  const iconOn = isDark ? "rgba(255,255,255,0.98)" : "rgba(15,23,42,0.95)";
-  const iconOff = isDark ? "rgba(255,255,255,0.70)" : "rgba(15,23,42,0.55)";
+  const iconOn = primary;
+  const iconOff = isDark ? "rgba(15,23,42,0.62)" : "rgba(15,23,42,0.58)";
 
-  const labelOn = isDark ? "rgba(255,255,255,0.98)" : "rgba(15,23,42,0.95)";
-  const labelOff = isDark ? "rgba(255,255,255,0.70)" : "rgba(15,23,42,0.50)";
+  const labelOn = primary;
+  const labelOff = isDark ? "rgba(15,23,42,0.74)" : "rgba(15,23,42,0.68)";
 
   return StyleSheet.create({
     wrap: {
@@ -265,46 +269,51 @@ function makeStyles(tokens, isDark, bottom) {
       bottom: 0,
       alignItems: "center",
     },
+
     shadow: {
       position: "absolute",
-      left: 10,
-      right: 10,
+      left: 12,
+      right: 12,
       bottom,
-      height: 72,
-      borderRadius: 26,
+      height: 76,
+      borderRadius: 28,
       shadowColor: "#000",
-      shadowOpacity: isDark ? 0.12 : 0.06,
+      shadowOpacity: 0.06,
       shadowRadius: 16,
-      shadowOffset: { width: 0, height: 10 },
-      elevation: 8,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 6,
     },
+
     bar: {
       position: "absolute",
-      left: 10,
-      right: 10,
+      left: 12,
+      right: 12,
       bottom,
-      height: 72,
-      borderRadius: 26,
+      height: 76,
+      borderRadius: 28,
       overflow: "hidden",
       borderWidth: 1,
-      borderColor: border,
+      borderColor: strongBorder,
       backgroundColor: "transparent",
     },
+
     glassOverlay: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: overlay,
     },
+
     barWeb: {
       position: "absolute",
-      left: 10,
-      right: 10,
+      left: 12,
+      right: 12,
       bottom,
-      height: 72,
-      borderRadius: 26,
-      backgroundColor: overlay,
+      height: 76,
+      borderRadius: 28,
+      backgroundColor: "rgba(255,255,255,0.88)",
       borderWidth: 1,
-      borderColor: border,
+      borderColor: strongBorder,
     },
+
     row: {
       flex: 1,
       flexDirection: "row",
@@ -312,54 +321,114 @@ function makeStyles(tokens, isDark, bottom) {
       justifyContent: "space-between",
       paddingHorizontal: 14,
     },
+
     item: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
     },
+
     pill: {
       width: "100%",
+      minHeight: 60,
       alignItems: "center",
+      justifyContent: "center",
       paddingVertical: 7,
-      borderRadius: 16,
-      marginHorizontal: 6,
+      borderRadius: 22,
+      marginHorizontal: 4,
     },
+
     pillOn: {
       backgroundColor: pillFill,
-      borderWidth: 1,
+      borderWidth: 1.5,
       borderColor: pillBorder,
+      shadowColor: "#000",
+      shadowOpacity: 0.04,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 2,
     },
-    pillOff: { backgroundColor: "transparent" },
-    iconRow: { height: 24, justifyContent: "center" },
-    label: { marginTop: 6, fontSize: 12, fontWeight: "800" },
-    labelOn: { color: labelOn },
-    labelOff: { color: labelOff },
-    iconOn: { color: iconOn },
-    iconOff: { color: iconOff },
-    centerSlot: { width: 88, alignItems: "center" },
+
+    pillOff: {
+      backgroundColor: "transparent",
+      borderWidth: 0,
+    },
+
+    iconRow: {
+      height: 24,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+
+    label: {
+      marginTop: 6,
+      fontSize: 11.5,
+      fontWeight: "800",
+      maxWidth: "92%",
+      textAlign: "center",
+    },
+
+    labelOn: {
+      color: labelOn,
+    },
+
+    labelOff: {
+      color: labelOff,
+    },
+
+    iconOn: {
+      color: iconOn,
+    },
+
+    iconOff: {
+      color: iconOff,
+    },
+
+    centerSlot: {
+      width: 90,
+      alignItems: "center",
+    },
+
     plusBtn: {
-      width: 54,
-      height: 54,
-      borderRadius: 27,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
       backgroundColor: primary,
       alignItems: "center",
       justifyContent: "center",
+      shadowColor: "#000",
+      shadowOpacity: 0.12,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 4,
     },
+
     avatar: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      backgroundColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.05)",
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: "rgba(255,255,255,0.34)",
       alignItems: "center",
       justifyContent: "center",
       borderWidth: 1,
       borderColor: border,
     },
+
     avatarOn: {
-      backgroundColor: isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.07)",
+      backgroundColor: "transparent",
+      borderColor: "transparent",
     },
-    avatarText: { fontSize: 14, fontWeight: "900", color: muted },
-    avatarTextOn: { color: text },
+
+    avatarText: {
+      fontSize: 14,
+      fontWeight: "900",
+      color: muted,
+    },
+
+    avatarTextOn: {
+      color: primary,
+    },
+
     dot: {
       position: "absolute",
       right: -2,
@@ -369,7 +438,7 @@ function makeStyles(tokens, isDark, bottom) {
       borderRadius: 5,
       backgroundColor: "#EF4444",
       borderWidth: 2,
-      borderColor: card,
+      borderColor: isDark ? card : bg,
     },
   });
 }
