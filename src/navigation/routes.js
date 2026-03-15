@@ -1,4 +1,10 @@
 // src/navigation/routes.js
+// CE ESTE:
+// - lista centrală de rute a aplicației
+//
+// MODIFICĂRI:
+// - adăugată ruta EditProfile pentru ecranul de editare profil
+
 export const ROUTES = {
   Home: "Home",
   Search: "Search",
@@ -10,6 +16,7 @@ export const ROUTES = {
 
   ItemDetails: "ItemDetails",
   EditItem: "EditItem",
+  EditProfile: "EditProfile",
 
   // Auth
   Welcome: "Welcome",

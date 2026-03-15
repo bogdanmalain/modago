@@ -1,16 +1,11 @@
 // src/components/FloatingTabBar.js
 // COMPONENTĂ: FloatingTabBar
 // MODIFICARE:
-// - compatibil cu navigatorul nou: tabbar-ul rămâne doar pentru tab-urile reale
-// - nu mai ascunde ItemDetails / EditItem etc. din tabbar, pentru că nu mai sunt în tabs
-// - păstrat offset separat pentru MyItems dacă ajunge să fie folosit ca route activă
-// - UI UPDATE:
-//   • bara rămâne albicioasă / curată
-//   • pill-ul activ pe light este mai transparent
-//   • icon + text active rămân theme-aware (primary)
-//   • label-uri schimbate:
-//      • Home -> Acasă
-//      • Inbox -> Mesaje primite
+// - bară mai alungită și mai "capsulă"
+// - colțuri mai rotunde la container
+// - înălțime puțin redusă
+// - activul rămâne curat și uniform
+// - păstrată logica de navigare și etichetele existente
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
 import {
@@ -37,6 +32,28 @@ function getInitialFromEmail(email) {
   const s = String(email || "").trim();
   if (!s) return "👤";
   return s[0].toUpperCase();
+}
+
+function hexToRgba(hex, alpha, fallback) {
+  if (!hex || typeof hex !== "string") return fallback;
+  if (hex.startsWith("rgba(") || hex.startsWith("rgb(")) return hex;
+
+  let c = hex.replace("#", "").trim();
+
+  if (c.length === 3) {
+    c = c
+      .split("")
+      .map((x) => x + x)
+      .join("");
+  }
+
+  if (c.length !== 6) return fallback;
+
+  const r = parseInt(c.slice(0, 2), 16);
+  const g = parseInt(c.slice(2, 4), 16);
+  const b = parseInt(c.slice(4, 6), 16);
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export default function FloatingTabBar({ state, descriptors, navigation }) {
@@ -73,9 +90,10 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
   const activeIndex = typeof state?.index === "number" ? state.index : 0;
   const activeRouteName = routes?.[activeIndex]?.name || "";
 
+  const extraLift = 18;
   const tabBottom = Math.max(
-    insets.bottom - (activeRouteName === ROUTES.MyItems ? 43 : 35),
-    0,
+    insets.bottom - (activeRouteName === ROUTES.MyItems ? 43 : 35) + extraLift,
+    12,
   );
 
   const S = useMemo(
@@ -90,12 +108,54 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
     ROUTES.Inbox,
     ROUTES.Profile,
   ];
+
   const visibleRoutes = routes.filter((r) => wanted.includes(r.name));
   const orderedRoutes = wanted
     .map((name) => visibleRoutes.find((r) => r.name === name))
     .filter(Boolean);
 
   if (orderedRoutes.length === 0) return null;
+
+  function getTabMeta(routeName) {
+    switch (routeName) {
+      case ROUTES.Home:
+        return {
+          label: "Acasă",
+          iconOff: "home-outline",
+          iconOn: "home",
+        };
+      case ROUTES.Search:
+        return {
+          label: "Căutare",
+          iconOff: "search-outline",
+          iconOn: "search",
+        };
+      case ROUTES.AddItem:
+        return {
+          label: "Vinde",
+          iconOff: "add-circle-outline",
+          iconOn: "add-circle",
+        };
+      case ROUTES.Inbox:
+        return {
+          label: "Mesaje primite",
+          iconOff: "mail-outline",
+          iconOn: "mail",
+        };
+      case ROUTES.Profile:
+        return {
+          label: "Profil",
+          iconOff: null,
+          iconOn: null,
+        };
+      default:
+        return {
+          label: routeName,
+          iconOff: "ellipse-outline",
+          iconOn: "ellipse",
+        };
+    }
+  }
 
   function renderButtons() {
     return (
@@ -105,7 +165,9 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
           const isFocused = activeIndex === index;
 
           const { options } = descriptors?.[route.key] || {};
-          const label = options?.tabBarLabel ?? options?.title ?? route.name;
+          const fallbackMeta = getTabMeta(route.name);
+          const label =
+            options?.tabBarLabel ?? options?.title ?? fallbackMeta.label;
 
           const onPress = () => {
             const event = navigation.emit({
@@ -123,55 +185,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
             navigation.emit({ type: "tabLongPress", target: route.key });
           };
 
-          if (route.name === ROUTES.AddItem) {
-            return (
-              <View key={route.key} style={S.centerSlot}>
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityState={isFocused ? { selected: true } : {}}
-                  accessibilityLabel={String(label)}
-                  testID={options?.tabBarTestID}
-                  onPress={onPress}
-                  onLongPress={onLongPress}
-                  activeOpacity={0.9}
-                  style={S.plusBtn}
-                >
-                  <Ionicons name="add" size={28} color="#fff" />
-                </TouchableOpacity>
-              </View>
-            );
-          }
-
           const isProfile = route.name === ROUTES.Profile;
-          const isSearch = route.name === ROUTES.Search;
-          const isInbox = route.name === ROUTES.Inbox;
-          const isHome = route.name === ROUTES.Home;
-
-          const iconOff = isSearch
-            ? "search-outline"
-            : isInbox
-              ? "mail-outline"
-              : isProfile
-                ? null
-                : "home-outline";
-
-          const iconOn = isSearch
-            ? "search"
-            : isInbox
-              ? "mail"
-              : isProfile
-                ? null
-                : "home";
-
-          const textLabel = isSearch
-            ? "Căutare"
-            : isInbox
-              ? "Mesaje primite"
-              : isProfile
-                ? "Profil"
-                : isHome
-                  ? "Acasă"
-                  : "Acasă";
 
           return (
             <TouchableOpacity
@@ -182,32 +196,37 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
               testID={options?.tabBarTestID}
               onPress={onPress}
               onLongPress={onLongPress}
-              activeOpacity={0.86}
+              activeOpacity={0.9}
               style={S.item}
             >
-              <View style={[S.pill, isFocused ? S.pillOn : S.pillOff]}>
-                <View style={S.iconRow}>
-                  {isProfile ? (
-                    <View style={[S.avatar, isFocused && S.avatarOn]}>
-                      <Text style={[S.avatarText, isFocused && S.avatarTextOn]}>
-                        {profileInitial}
-                      </Text>
-                      <View style={S.dot} />
-                    </View>
-                  ) : (
-                    <Ionicons
-                      name={isFocused ? iconOn : iconOff}
-                      size={22}
-                      color={isFocused ? S.iconOn.color : S.iconOff.color}
-                    />
-                  )}
-                </View>
+              <View
+                style={[
+                  S.tabBubble,
+                  isFocused ? S.tabBubbleOn : S.tabBubbleOff,
+                ]}
+              >
+                {isProfile ? (
+                  <View style={[S.avatar, isFocused && S.avatarOn]}>
+                    <Text style={[S.avatarText, isFocused && S.avatarTextOn]}>
+                      {profileInitial}
+                    </Text>
+                    <View style={S.dot} />
+                  </View>
+                ) : (
+                  <Ionicons
+                    name={
+                      isFocused ? fallbackMeta.iconOn : fallbackMeta.iconOff
+                    }
+                    size={21}
+                    color={isFocused ? S.iconOn.color : S.iconOff.color}
+                  />
+                )}
 
                 <Text
                   numberOfLines={1}
                   style={[S.label, isFocused ? S.labelOn : S.labelOff]}
                 >
-                  {textLabel}
+                  {fallbackMeta.label}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -225,9 +244,11 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
         <View style={S.barWeb}>{renderButtons()}</View>
       ) : (
         <BlurView
-          tint="light"
-          intensity={18}
-          reducedTransparencyFallbackColor="rgba(255,255,255,0.92)"
+          tint={isDark ? "dark" : "light"}
+          intensity={isDark ? 26 : 14}
+          reducedTransparencyFallbackColor={
+            isDark ? "rgba(10,16,28,0.96)" : "rgba(255,255,255,0.97)"
+          }
           style={S.bar}
         >
           <View pointerEvents="none" style={S.glassOverlay} />
@@ -239,27 +260,57 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
 }
 
 function makeStyles(tokens, isDark, bottom) {
-  const muted = pickTok(tokens, "muted", isDark ? "#8F98AA" : "#6B7280");
-  const primary = pickTok(tokens, "primary", "#43C6DB");
-  const card = pickTok(tokens, "card", isDark ? "#111A2E" : "#FFFFFF");
+  const primary = pickTok(
+    tokens,
+    "primary",
+    pickTok(tokens, "accent", "#43C6DB"),
+  );
+  const text = pickTok(tokens, "text", isDark ? "#E7EEF8" : "#111827");
+  const muted = pickTok(tokens, "muted", isDark ? "#93A0B4" : "#6B7280");
   const bg = pickTok(tokens, "bg", isDark ? "#071224" : "#F3F4F6");
+  const card = pickTok(tokens, "card", isDark ? "#111A2E" : "#FFFFFF");
+  const borderTok = pickTok(tokens, "border", isDark ? "#22304A" : "#D1D5DB");
 
-  const border = isDark ? "rgba(0,0,0,0.04)" : "rgba(0,0,0,0.08)";
-  const strongBorder = isDark ? "rgba(255,255,255,0.42)" : "rgba(0,0,0,0.08)";
+  const barBg = isDark ? "rgba(11,17,30,0.84)" : "rgba(255,255,255,0.88)";
 
-  const overlay = isDark ? "rgba(255,255,255,0.58)" : "rgba(255,255,255,0.78)";
+  const barBorder = isDark
+    ? hexToRgba(text, 0.08, "rgba(255,255,255,0.08)")
+    : hexToRgba("#111827", 0.08, "rgba(17,24,39,0.08)");
 
-  const pillFill = isDark ? "rgba(255,255,255,0.30)" : "rgba(255,255,255,0)";
+  const bubbleFill = isDark
+    ? hexToRgba(primary, 0.16, "rgba(67,198,219,0.16)")
+    : hexToRgba(primary, 0.11, "rgba(67,198,219,0.11)");
 
-  const pillBorder = isDark
-    ? "rgba(255,255,255,0.52)"
-    : "rgba(255,255,255,0.94)";
+  const bubbleBorder = isDark
+    ? hexToRgba(primary, 0.22, "rgba(67,198,219,0.22)")
+    : "transparent";
 
   const iconOn = primary;
-  const iconOff = isDark ? "rgba(15,23,42,0.62)" : "rgba(15,23,42,0.58)";
+  const iconOff = isDark
+    ? hexToRgba(text, 0.72, "rgba(231,238,248,0.72)")
+    : hexToRgba("#111827", 0.56, "rgba(17,24,39,0.56)");
 
-  const labelOn = primary;
-  const labelOff = isDark ? "rgba(15,23,42,0.74)" : "rgba(15,23,42,0.68)";
+  const labelOn = isDark ? text : primary;
+  const labelOff = isDark
+    ? hexToRgba(text, 0.82, "rgba(231,238,248,0.82)")
+    : hexToRgba("#111827", 0.66, "rgba(17,24,39,0.66)");
+
+  const avatarBg = isDark
+    ? hexToRgba(text, 0.08, "rgba(255,255,255,0.08)")
+    : "rgba(255,255,255,0.42)";
+
+  const avatarBgOn = isDark
+    ? hexToRgba(primary, 0.14, "rgba(67,198,219,0.14)")
+    : hexToRgba(primary, 0.12, "rgba(67,198,219,0.12)");
+
+  const profileTextOff = isDark ? text : muted;
+  const profileTextOn = primary;
+
+  const dotBorder = isDark ? card : bg;
+
+  const horizontalInset = 22;
+  const barRadius = 34;
+  const bubbleRadius = 22;
 
   return StyleSheet.create({
     wrap: {
@@ -272,46 +323,47 @@ function makeStyles(tokens, isDark, bottom) {
 
     shadow: {
       position: "absolute",
-      left: 12,
-      right: 12,
+      left: horizontalInset,
+      right: horizontalInset,
       bottom,
-      height: 76,
-      borderRadius: 28,
+      height: 64,
+      borderRadius: barRadius,
       shadowColor: "#000",
-      shadowOpacity: 0.06,
-      shadowRadius: 16,
-      shadowOffset: { width: 0, height: 8 },
-      elevation: 6,
+      shadowOpacity: isDark ? 0.18 : 0.05,
+      shadowRadius: isDark ? 14 : 10,
+      shadowOffset: { width: 0, height: 5 },
+      elevation: isDark ? 8 : 4,
     },
 
     bar: {
       position: "absolute",
-      left: 12,
-      right: 12,
+      left: horizontalInset,
+      right: horizontalInset,
       bottom,
-      height: 76,
-      borderRadius: 28,
+      height: 64,
+      borderRadius: barRadius,
       overflow: "hidden",
       borderWidth: 1,
-      borderColor: strongBorder,
+      borderColor: barBorder,
       backgroundColor: "transparent",
     },
 
     glassOverlay: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: overlay,
+      backgroundColor: barBg,
     },
 
     barWeb: {
       position: "absolute",
-      left: 12,
-      right: 12,
+      left: horizontalInset,
+      right: horizontalInset,
       bottom,
-      height: 76,
-      borderRadius: 28,
-      backgroundColor: "rgba(255,255,255,0.88)",
+      height: 64,
+      borderRadius: barRadius,
+      overflow: "hidden",
       borderWidth: 1,
-      borderColor: strongBorder,
+      borderColor: barBorder,
+      backgroundColor: barBg,
     },
 
     row: {
@@ -319,53 +371,44 @@ function makeStyles(tokens, isDark, bottom) {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      paddingHorizontal: 14,
+      paddingHorizontal: 10,
     },
 
     item: {
       flex: 1,
+      height: "100%",
       alignItems: "center",
       justifyContent: "center",
+      paddingHorizontal: 2,
     },
 
-    pill: {
+    tabBubble: {
       width: "100%",
-      minHeight: 60,
+      minHeight: 48,
+      borderRadius: bubbleRadius,
       alignItems: "center",
       justifyContent: "center",
-      paddingVertical: 7,
-      borderRadius: 22,
-      marginHorizontal: 4,
+      paddingVertical: 4,
+      paddingHorizontal: 4,
     },
 
-    pillOn: {
-      backgroundColor: pillFill,
-      borderWidth: 1.5,
-      borderColor: pillBorder,
-      shadowColor: "#000",
-      shadowOpacity: 0.04,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 3 },
-      elevation: 2,
+    tabBubbleOn: {
+      backgroundColor: bubbleFill,
+      borderWidth: isDark ? 1 : 0,
+      borderColor: bubbleBorder,
     },
 
-    pillOff: {
+    tabBubbleOff: {
       backgroundColor: "transparent",
       borderWidth: 0,
     },
 
-    iconRow: {
-      height: 24,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-
     label: {
-      marginTop: 6,
-      fontSize: 11.5,
+      marginTop: 4,
+      fontSize: 10.5,
       fontWeight: "800",
-      maxWidth: "92%",
       textAlign: "center",
+      maxWidth: "96%",
     },
 
     labelOn: {
@@ -384,49 +427,34 @@ function makeStyles(tokens, isDark, bottom) {
       color: iconOff,
     },
 
-    centerSlot: {
-      width: 90,
-      alignItems: "center",
-    },
-
-    plusBtn: {
-      width: 56,
-      height: 56,
-      borderRadius: 28,
-      backgroundColor: primary,
-      alignItems: "center",
-      justifyContent: "center",
-      shadowColor: "#000",
-      shadowOpacity: 0.12,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 4,
-    },
-
     avatar: {
-      width: 30,
-      height: 30,
-      borderRadius: 15,
-      backgroundColor: "rgba(255,255,255,0.34)",
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: avatarBg,
       alignItems: "center",
       justifyContent: "center",
       borderWidth: 1,
-      borderColor: border,
+      borderColor: isDark
+        ? hexToRgba(text, 0.08, "rgba(255,255,255,0.08)")
+        : borderTok,
     },
 
     avatarOn: {
-      backgroundColor: "transparent",
-      borderColor: "transparent",
+      backgroundColor: avatarBgOn,
+      borderColor: isDark
+        ? hexToRgba(primary, 0.18, "rgba(67,198,219,0.18)")
+        : "transparent",
     },
 
     avatarText: {
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: "900",
-      color: muted,
+      color: profileTextOff,
     },
 
     avatarTextOn: {
-      color: primary,
+      color: profileTextOn,
     },
 
     dot: {
@@ -438,7 +466,7 @@ function makeStyles(tokens, isDark, bottom) {
       borderRadius: 5,
       backgroundColor: "#EF4444",
       borderWidth: 2,
-      borderColor: isDark ? card : bg,
+      borderColor: dotBorder,
     },
   });
 }

@@ -2,14 +2,14 @@
  * ================================
  * PROFILESCREEN
  * ================================
+ * CE ESTE:
+ * -> ecranul de profil pentru varianta mobilă ModaGo
+ *
  * MODIFICĂRI:
- * -> FIX: count-urile se încarcă și imediat după ce sesiunea devine disponibilă
- * -> păstrat refresh și la focus
- * -> prima logare afișează corect Anunțurile mele / Favorite fără să mai intri pe alt ecran
- * -> FIX: navigarea folosește noua structură de stack
- *    • MyItems / Favorites / ThemeSettings nu mai sunt în TabsRoot
- *    • butoanele funcționează din nou
- * -> restul logicii rămâne neschimbată
+ * -> FIX: "Tema aplicație" afișează acum corect Auto / Light / Dark
+ * -> folosește settings.mode + settings.manualScheme din ThemeProvider
+ * -> păstrat redesign-ul glass/light card și logica existentă
+ * -> păstrată navigarea spre EditProfile, MyItems, Favorites, ThemeSettings
  */
 
 import React, {
@@ -26,6 +26,7 @@ import {
   TouchableOpacity,
   ScrollView,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 
@@ -40,9 +41,77 @@ function pickTok(tokens, key, fallback) {
   return v !== undefined && v !== null ? v : fallback;
 }
 
+function getThemeLabel(settings) {
+  const mode = settings?.mode === "manual" ? "manual" : "auto";
+  const manualScheme = settings?.manualScheme === "dark" ? "dark" : "light";
+
+  if (mode === "auto") return "Auto";
+  return manualScheme === "dark" ? "Dark" : "Light";
+}
+
+function getInitials(displayName, email) {
+  const source = (displayName || email || "").trim();
+  if (!source) return "MG";
+
+  if (source.includes(" ")) {
+    const parts = source
+      .split(" ")
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    if (parts.length >= 2) {
+      return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
+    }
+  }
+
+  return source.slice(0, 2).toUpperCase();
+}
+
+function MenuRow({
+  icon,
+  label,
+  value,
+  onPress,
+  showDivider = false,
+  danger = false,
+  S,
+  iconColor,
+}) {
+  return (
+    <>
+      <TouchableOpacity style={S.menuRow} activeOpacity={0.9} onPress={onPress}>
+        <View style={S.menuLeft}>
+          <View style={S.menuIconWrap}>
+            <Ionicons
+              name={icon}
+              size={22}
+              color={danger ? S.__colors.danger : iconColor}
+            />
+          </View>
+
+          <Text style={[S.menuText, danger && { color: S.__colors.danger }]}>
+            {label}
+          </Text>
+        </View>
+
+        <View style={S.menuRight}>
+          {!!value && <Text style={S.menuValue}>{value}</Text>}
+          <Ionicons
+            name="chevron-forward"
+            size={18}
+            color={danger ? S.__colors.dangerSoft : S.__colors.chevron}
+          />
+        </View>
+      </TouchableOpacity>
+
+      {showDivider ? <View style={S.menuDivider} /> : null}
+    </>
+  );
+}
+
 export default function ProfileScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { tokens } = useContext(ThemeContext);
+  const { tokens, settings } = useContext(ThemeContext);
 
   const S = useMemo(() => makeStyles(tokens), [tokens]);
 
@@ -56,7 +125,6 @@ export default function ProfileScreen({ navigation }) {
   const [myItemsCount, setMyItemsCount] = useState(null);
   const [favCount, setFavCount] = useState(null);
 
-  /* ── sesiune ── */
   useEffect(() => {
     let sub;
 
@@ -75,16 +143,26 @@ export default function ProfileScreen({ navigation }) {
     return () => sub?.unsubscribe?.();
   }, []);
 
-  /* ── display ── */
   const displayName = useMemo(() => {
+    const metaName =
+      user?.user_metadata?.full_name ||
+      user?.user_metadata?.name ||
+      user?.user_metadata?.display_name ||
+      "";
+
+    if (metaName) return metaName;
+
     const e = user?.email || "";
     if (!e) return "Vizitator";
     return e.split("@")[0];
-  }, [user?.email]);
+  }, [user]);
 
   const email = user?.email || "";
+  const initials = useMemo(
+    () => getInitials(displayName, email),
+    [displayName, email],
+  );
 
-  /* ── counts ── */
   const loadCounts = useCallback(async () => {
     if (!sessionReady) {
       setLoadingCounts(true);
@@ -116,20 +194,17 @@ export default function ProfileScreen({ navigation }) {
     }
   }, [userId, sessionReady]);
 
-  /* FIX: când sesiunea devine disponibilă după login, încărcăm count-urile */
   useEffect(() => {
     if (!sessionReady) return;
     loadCounts();
   }, [sessionReady, userId, loadCounts]);
 
-  /* Refresh la focus */
   useFocusEffect(
     useCallback(() => {
       loadCounts();
     }, [loadCounts]),
   );
 
-  /* ── navigare ── */
   const goMyItems = useCallback(() => {
     if (!sessionReady || !user) return;
     navigation.navigate(ROUTES.MyItems);
@@ -144,9 +219,10 @@ export default function ProfileScreen({ navigation }) {
     navigation.navigate(ROUTES.ThemeSettings);
   }, [navigation]);
 
-  const goSell = useCallback(() => {
-    navigation.navigate(ROUTES.AddItem);
-  }, [navigation]);
+  const goEditProfile = useCallback(() => {
+    if (!sessionReady || !user) return;
+    navigation.navigate(ROUTES.EditProfile);
+  }, [sessionReady, user, navigation]);
 
   const onLogout = useCallback(async () => {
     try {
@@ -156,8 +232,8 @@ export default function ProfileScreen({ navigation }) {
     }
   }, []);
 
-  /* ── render helpers ── */
   const formatCount = (val) => (loadingCounts ? "—" : String(val ?? "—"));
+  const themeLabel = getThemeLabel(settings);
 
   return (
     <ScrollView
@@ -166,106 +242,138 @@ export default function ProfileScreen({ navigation }) {
         S.content,
         {
           paddingTop: Math.max(insets.top, 12),
-          paddingBottom: Math.max(insets.bottom, 18) + 10,
+          paddingBottom: Math.max(insets.bottom, 18) + 16,
         },
       ]}
       showsVerticalScrollIndicator={false}
     >
-      <Text style={S.title}>Profil</Text>
+      <View style={S.phoneShell}>
+        <Text style={S.brandTitle}>ModaGo</Text>
 
-      <View style={S.profileCard}>
-        <View style={S.avatar}>
-          <Text style={S.avatarText}>
-            {displayName?.slice(0, 2).toUpperCase()}
-          </Text>
+        <View style={S.headerActions}>
+          <TouchableOpacity
+            style={S.closeBtn}
+            activeOpacity={0.9}
+            onPress={() => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+                return;
+              }
+              navigation.navigate("TabsRoot", { screen: ROUTES.Profile });
+            }}
+          >
+            <Ionicons name="close" size={24} color={S.__colors.text} />
+          </TouchableOpacity>
         </View>
 
-        <View style={{ flex: 1 }}>
+        <View style={S.profileHero}>
+          <View style={S.avatar}>
+            <Text style={S.avatarText}>{initials}</Text>
+          </View>
+
           <Text style={S.name}>{displayName}</Text>
           <Text style={S.email}>{email || "Nu ești logat"}</Text>
+
+          <TouchableOpacity
+            style={S.editBtn}
+            activeOpacity={0.9}
+            onPress={goEditProfile}
+          >
+            <Text style={S.editBtnText}>Editează profilul</Text>
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={S.sellBtn}
-          activeOpacity={0.9}
-          onPress={goSell}
-        >
-          <Text style={S.sellBtnText}>Vinde</Text>
-        </TouchableOpacity>
-      </View>
+        <View style={S.infoPillsRow}>
+          <TouchableOpacity
+            style={S.infoPill}
+            activeOpacity={0.9}
+            onPress={goMyItems}
+          >
+            <Text style={S.infoPillValue}>{formatCount(myItemsCount)}</Text>
+            <Text style={S.infoPillLabel}>Anunțuri</Text>
+          </TouchableOpacity>
 
-      <View style={S.statsRow}>
-        <TouchableOpacity
-          style={S.statCard}
-          activeOpacity={0.9}
-          onPress={goMyItems}
-        >
-          <Text style={S.statNum}>{formatCount(myItemsCount)}</Text>
-          <Text style={S.statLabel}>Anunțurile mele</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={S.infoPill}
+            activeOpacity={0.9}
+            onPress={goFavorites}
+          >
+            <Text style={S.infoPillValue}>{formatCount(favCount)}</Text>
+            <Text style={S.infoPillLabel}>Favorite</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={S.statCard}
-          activeOpacity={0.9}
-          onPress={goFavorites}
-        >
-          <Text style={S.statNum}>{formatCount(favCount)}</Text>
-          <Text style={S.statLabel}>Favorite</Text>
-        </TouchableOpacity>
-
-        <View style={S.statCard}>
-          <Text style={S.statNum}>0</Text>
-          <Text style={S.statLabel}>Vânzări</Text>
+          <View style={S.infoPill}>
+            <Text style={S.infoPillValue}>0</Text>
+            <Text style={S.infoPillLabel}>Vânzări</Text>
+          </View>
         </View>
+
+        <View style={S.menuCard}>
+          <MenuRow
+            icon="person-outline"
+            label="Editează profilul"
+            onPress={goEditProfile}
+            showDivider
+            S={S}
+            iconColor={S.__colors.icon}
+          />
+
+          <MenuRow
+            icon="briefcase-outline"
+            label="Anunțurile mele"
+            onPress={goMyItems}
+            showDivider
+            S={S}
+            iconColor={S.__colors.icon}
+          />
+
+          <MenuRow
+            icon="heart-outline"
+            label="Favorite"
+            onPress={goFavorites}
+            showDivider
+            S={S}
+            iconColor={S.__colors.icon}
+          />
+
+          <MenuRow
+            icon="moon-outline"
+            label="Tema aplicație"
+            value={themeLabel}
+            onPress={goThemeSettings}
+            showDivider
+            S={S}
+            iconColor={S.__colors.icon}
+          />
+
+          <MenuRow
+            icon="settings-outline"
+            label="Setări"
+            onPress={goThemeSettings}
+            S={S}
+            iconColor={S.__colors.icon}
+          />
+        </View>
+
+        <View style={S.logoutCard}>
+          <MenuRow
+            icon="power-outline"
+            label="Deconectează-te"
+            onPress={onLogout}
+            danger
+            S={S}
+            iconColor={S.__colors.danger}
+          />
+        </View>
+
+        <View style={S.homeIndicator} />
       </View>
-
-      <View style={S.menuCard}>
-        <TouchableOpacity
-          style={S.menuRow}
-          onPress={goMyItems}
-          activeOpacity={0.9}
-        >
-          <Text style={S.menuText}>🧾 Anunțurile mele</Text>
-          <Text style={S.menuArrow}>›</Text>
-        </TouchableOpacity>
-
-        <View style={S.menuDivider} />
-
-        <TouchableOpacity
-          style={S.menuRow}
-          onPress={goFavorites}
-          activeOpacity={0.9}
-        >
-          <Text style={S.menuText}>♡ Favorite</Text>
-          <Text style={S.menuArrow}>›</Text>
-        </TouchableOpacity>
-
-        <View style={S.menuDivider} />
-
-        <TouchableOpacity
-          style={S.menuRow}
-          onPress={goThemeSettings}
-          activeOpacity={0.9}
-        >
-          <Text style={S.menuText}>⚙️ Setări</Text>
-          <Text style={S.menuArrow}>›</Text>
-        </TouchableOpacity>
-      </View>
-
-      <TouchableOpacity
-        style={S.logoutBtn}
-        activeOpacity={0.9}
-        onPress={onLogout}
-      >
-        <Text style={S.logoutText}>Logout</Text>
-      </TouchableOpacity>
     </ScrollView>
   );
 }
 
 function makeStyles(tokens) {
   const bg = pickTok(tokens, "bg", "#0B1220");
-  const card = pickTok(tokens, "card", "#111A2E");
   const text = pickTok(tokens, "text", "#E5E7EB");
   const muted = pickTok(tokens, "muted", pickTok(tokens, "subtext", "#9CA3AF"));
   const border = pickTok(tokens, "border", "rgba(255,255,255,0.10)");
@@ -273,100 +381,253 @@ function makeStyles(tokens) {
   const primary = pickTok(
     tokens,
     "primary",
-    pickTok(tokens, "accent", "#60A5FA"),
+    pickTok(tokens, "accent", "#2EC4B6"),
   );
-  const primarySoft = pickTok(tokens, "primarySoft", "rgba(96,165,250,0.18)");
-  const danger = pickTok(tokens, "danger", "#F87171");
+  const danger = pickTok(tokens, "danger", "#EF6A6A");
   const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
 
-  return StyleSheet.create({
-    screen: { flex: 1, backgroundColor: bg },
-    content: { flexGrow: 1, paddingHorizontal: 16, backgroundColor: bg },
+  const glass = pickTok(tokens, "card", "rgba(255,255,255,0.10)");
+  const glassStrong = pickTok(tokens, "surfaceElevated", glass);
+  const shellBorder = pickTok(tokens, "borderStrong", border);
+  const chevron = pickTok(tokens, "muted", muted);
+  const icon = pickTok(tokens, "text", text);
 
-    title: {
+  return StyleSheet.create({
+    __colors: {
+      bg,
+      text,
+      muted,
+      border,
+      divider,
+      primary,
+      danger,
+      onPrimary,
+      chevron,
+      icon,
+      dangerSoft: danger,
+      glass,
+      glassStrong,
+      shellBorder,
+    },
+
+    screen: {
+      flex: 1,
+      backgroundColor: bg,
+    },
+
+    content: {
+      flexGrow: 1,
+      paddingHorizontal: 16,
+      backgroundColor: bg,
+      justifyContent: "center",
+    },
+
+    phoneShell: {
+      position: "relative",
+      borderRadius: 34,
+      paddingHorizontal: 18,
+      paddingTop: 20,
+      paddingBottom: 26,
+      borderWidth: 1,
+      borderColor: shellBorder,
+      backgroundColor: glass,
+      overflow: "hidden",
+      shadowColor: "#000",
+      shadowOpacity: 0.16,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 6,
+    },
+
+    brandTitle: {
       fontSize: 22,
       fontWeight: "900",
       textAlign: "center",
-      marginBottom: 12,
       color: text,
+      marginTop: 2,
     },
 
-    profileCard: {
-      flexDirection: "row",
+    headerActions: {
+      position: "absolute",
+      top: 14,
+      right: 14,
+      zIndex: 5,
+    },
+
+    closeBtn: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
       alignItems: "center",
-      backgroundColor: card,
-      borderRadius: 16,
-      padding: 14,
-      gap: 12,
+      justifyContent: "center",
+      backgroundColor: glassStrong,
       borderWidth: 1,
       borderColor: border,
+    },
+
+    profileHero: {
+      alignItems: "center",
+      paddingTop: 26,
+      paddingBottom: 14,
     },
 
     avatar: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+      width: 124,
+      height: 124,
+      borderRadius: 62,
       backgroundColor: primary,
       alignItems: "center",
       justifyContent: "center",
+      marginBottom: 18,
     },
-    avatarText: { color: onPrimary, fontWeight: "900" },
 
-    name: { fontSize: 18, fontWeight: "900", color: text },
-    email: { marginTop: 2, color: muted, fontWeight: "700" },
+    avatarText: {
+      color: onPrimary,
+      fontWeight: "300",
+      fontSize: 44,
+      letterSpacing: 1,
+    },
 
-    sellBtn: {
-      paddingHorizontal: 14,
-      height: 34,
-      borderRadius: 12,
-      backgroundColor: primarySoft,
+    name: {
+      fontSize: 24,
+      lineHeight: 30,
+      fontWeight: "800",
+      color: text,
+      textAlign: "center",
+    },
+
+    email: {
+      marginTop: 4,
+      fontSize: 16,
+      fontWeight: "600",
+      color: muted,
+      textAlign: "center",
+    },
+
+    editBtn: {
+      marginTop: 16,
+      minHeight: 44,
+      paddingHorizontal: 22,
+      borderRadius: 22,
       alignItems: "center",
       justifyContent: "center",
+      backgroundColor: glassStrong,
       borderWidth: 1,
       borderColor: border,
     },
-    sellBtnText: { color: primary, fontWeight: "900" },
 
-    statsRow: { flexDirection: "row", gap: 10, marginTop: 12 },
-    statCard: {
+    editBtnText: {
+      color: text,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+
+    infoPillsRow: {
+      flexDirection: "row",
+      gap: 10,
+      marginBottom: 16,
+    },
+
+    infoPill: {
       flex: 1,
-      backgroundColor: card,
-      borderRadius: 16,
-      paddingVertical: 14,
+      minHeight: 70,
+      borderRadius: 18,
       alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: glassStrong,
       borderWidth: 1,
       borderColor: border,
+      paddingHorizontal: 8,
     },
-    statNum: { fontSize: 22, fontWeight: "900", color: text },
-    statLabel: { marginTop: 6, color: muted, fontWeight: "800" },
+
+    infoPillValue: {
+      fontSize: 20,
+      fontWeight: "900",
+      color: text,
+    },
+
+    infoPillLabel: {
+      marginTop: 4,
+      fontSize: 12,
+      fontWeight: "700",
+      color: muted,
+      textAlign: "center",
+    },
 
     menuCard: {
-      marginTop: 12,
-      backgroundColor: card,
-      borderRadius: 16,
+      borderRadius: 24,
+      backgroundColor: glassStrong,
       borderWidth: 1,
       borderColor: border,
       overflow: "hidden",
+      marginTop: 4,
     },
+
     menuRow: {
-      height: 54,
-      paddingHorizontal: 16,
+      minHeight: 68,
+      paddingHorizontal: 18,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
     },
-    menuText: { fontSize: 16, fontWeight: "900", color: text },
-    menuArrow: { fontSize: 22, fontWeight: "900", color: muted },
-    menuDivider: { height: 1, backgroundColor: divider },
 
-    logoutBtn: {
-      marginTop: 14,
-      height: 56,
-      borderRadius: 16,
-      backgroundColor: danger,
+    menuLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+      minWidth: 0,
+    },
+
+    menuIconWrap: {
+      width: 30,
       alignItems: "center",
       justifyContent: "center",
+      marginRight: 12,
     },
-    logoutText: { color: onPrimary, fontWeight: "900", fontSize: 18 },
+
+    menuText: {
+      flex: 1,
+      fontSize: 17,
+      fontWeight: "700",
+      color: text,
+    },
+
+    menuRight: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginLeft: 12,
+    },
+
+    menuValue: {
+      fontSize: 15,
+      fontWeight: "700",
+      color: muted,
+      marginRight: 8,
+    },
+
+    menuDivider: {
+      height: 1,
+      marginLeft: 58,
+      backgroundColor: divider,
+    },
+
+    logoutCard: {
+      marginTop: 16,
+      borderRadius: 22,
+      backgroundColor: glassStrong,
+      borderWidth: 1,
+      borderColor: border,
+      overflow: "hidden",
+    },
+
+    homeIndicator: {
+      width: 142,
+      height: 5,
+      borderRadius: 999,
+      backgroundColor: muted,
+      opacity: 0.55,
+      alignSelf: "center",
+      marginTop: 18,
+    },
   });
 }

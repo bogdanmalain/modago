@@ -1,17 +1,10 @@
 // src/screens/MyItemsScreen.js
-// ============================================
-// COMPONENTĂ: MyItemsScreen
-// MODIFICĂRI:
-// - FIX: la revenire pe ecran se reîncarcă lista de anunțuri, nu doar favoritele
-// - FIX: anunțul nou creat apare imediat în MyItems fără logout/login
-// - FIX: back din MyItems merge corect către tab-ul Profile în noua structură de navigator
-// - POLISH: favorite overlay mai contrastant peste imagine
-// - păstrat layout-ul actual al cardurilor
-// - păstrat bottom sheet owner:
-//    • Editare = primary
-//    • Anulează = primary
-//    • Ștergere = danger
-// ============================================
+// MODIFICARE:
+// - la ștergerea anunțului, se încearcă și ștergerea imaginilor din bucket-ul Supabase Storage
+// - se extrag path-urile din URL-urile publice / path-urile simple
+// - cleanup-ul Storage este best-effort: dacă pozele nu se pot șterge, anunțul tot se șterge
+// - păstrată logica actuală de UI și favorite
+// - restul logicii rămâne neschimbată
 
 import React, {
   useCallback,
@@ -52,6 +45,7 @@ const CARD_H = 164;
 const IMAGE_W = 170;
 const FAV_ICON = 44;
 const BADGE_MIN = 22;
+const STORAGE_BUCKET = "items";
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -86,6 +80,87 @@ function formatPrice(price) {
   const numeric = Number(price);
   if (Number.isNaN(numeric)) return String(price);
   return `${numeric} lei`;
+}
+
+function extractStoragePathFromUrl(url, bucket = STORAGE_BUCKET) {
+  const value = String(url || "").trim();
+  if (!value) return null;
+
+  if (
+    !value.startsWith("http://") &&
+    !value.startsWith("https://") &&
+    !value.includes("/storage/v1/object/")
+  ) {
+    return value;
+  }
+
+  try {
+    const u = new URL(value);
+    const pathname = decodeURIComponent(u.pathname);
+
+    const publicMarker = `/storage/v1/object/public/${bucket}/`;
+    const signMarker = `/storage/v1/object/sign/${bucket}/`;
+    const renderMarker = `/storage/v1/object/render/image/public/${bucket}/`;
+
+    if (pathname.includes(publicMarker)) {
+      return pathname.split(publicMarker)[1] || null;
+    }
+
+    if (pathname.includes(signMarker)) {
+      return pathname.split(signMarker)[1] || null;
+    }
+
+    if (pathname.includes(renderMarker)) {
+      return pathname.split(renderMarker)[1] || null;
+    }
+
+    const idx = pathname.indexOf(`/${bucket}/`);
+    if (idx >= 0) {
+      return pathname.slice(idx + bucket.length + 2) || null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getStoragePathsFromItem(item, bucket = STORAGE_BUCKET) {
+  const raw = item?.images || item?.image_urls || [];
+  const arr = Array.isArray(raw) ? raw : [];
+  const paths = arr
+    .map((entry) => {
+      if (typeof entry === "string")
+        return extractStoragePathFromUrl(entry, bucket);
+      if (entry?.url) return extractStoragePathFromUrl(entry.url, bucket);
+      if (entry?.uri) return extractStoragePathFromUrl(entry.uri, bucket);
+      return null;
+    })
+    .filter(Boolean);
+
+  return Array.from(new Set(paths));
+}
+
+async function deleteItemWithImages(item, bucket = STORAGE_BUCKET) {
+  if (!item?.id) throw new Error("Lipsește id-ul anunțului.");
+
+  const paths = getStoragePathsFromItem(item, bucket);
+
+  if (paths.length > 0) {
+    const { error: storageErr } = await supabase.storage
+      .from(bucket)
+      .remove(paths);
+
+    if (storageErr) {
+      console.log("⚠️ storage remove warning:", storageErr);
+    }
+  }
+
+  const { error: dbErr } = await supabase
+    .from("items")
+    .delete()
+    .eq("id", item.id);
+  if (dbErr) throw dbErr;
 }
 
 export default function MyItemsScreen({ navigation, route }) {
@@ -516,11 +591,7 @@ export default function MyItemsScreen({ navigation, route }) {
       try {
         setDeletingId(item.id);
 
-        const { error } = await supabase
-          .from("items")
-          .delete()
-          .eq("id", item.id);
-        if (error) throw error;
+        await deleteItemWithImages(item, STORAGE_BUCKET);
 
         setItems((prev) =>
           Array.isArray(prev)
@@ -543,7 +614,7 @@ export default function MyItemsScreen({ navigation, route }) {
         closeMenu();
       } catch (err) {
         console.error("MyItemsScreen delete item error:", err);
-        Alert.alert("Eroare", "Nu am putut șterge anunțul.");
+        Alert.alert("Eroare", err?.message || "Nu am putut șterge anunțul.");
       } finally {
         setDeletingId(null);
       }

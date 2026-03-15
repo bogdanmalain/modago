@@ -1,10 +1,10 @@
 // src/screens/AddItemScreen.js
 // MODIFICARE:
-// - back button folosește acum componenta reutilizabilă HeaderBackButton
-// - păstrează stilul din ThemeSettings
-// - FIX: scos KeyboardAvoidingView (ridica tot ecranul)
-// - FIX: tastatura se închide când utilizatorul începe să facă scroll
-// - comportament dorit: dispare tastatura, nu se mută tot formularul
+// - reducere dimensiune poze înainte de upload pentru a scădea traficul Supabase Storage
+// - MAX_LONG_SIDE: 1600 -> 1080
+// - JPEG_QUALITY: 0.85 -> 0.72
+// - păstrat flow-ul actual: JPEG real pe mobile + upload normal pe web
+// - restul logicii rămâne neschimbată
 
 import React, {
   useCallback,
@@ -41,8 +41,8 @@ import HeaderBackButton, {
 
 const STORAGE_BUCKET = "items";
 const MAX_IMAGES = 6;
-const MAX_LONG_SIDE = 1600;
-const JPEG_QUALITY = 0.85;
+const MAX_LONG_SIDE = 1080;
+const JPEG_QUALITY = 0.72;
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -90,6 +90,41 @@ async function normalizeToJpegMobile(uri, meta) {
   return result.uri;
 }
 
+async function normalizeToJpegWeb(uri) {
+  const res = await fetch(uri);
+  if (!res.ok) throw new Error("Nu pot citi poza (fetch a eșuat).");
+
+  const blob = await res.blob();
+
+  const bitmap = await createImageBitmap(blob);
+
+  let targetWidth = bitmap.width;
+  let targetHeight = bitmap.height;
+  const longSide = Math.max(bitmap.width, bitmap.height);
+
+  if (longSide > MAX_LONG_SIDE) {
+    const scale = MAX_LONG_SIDE / longSide;
+    targetWidth = Math.round(bitmap.width * scale);
+    targetHeight = Math.round(bitmap.height * scale);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Nu pot procesa poza pe web.");
+
+  ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+
+  const jpegBlob = await new Promise((resolve) => {
+    canvas.toBlob((b) => resolve(b), "image/jpeg", JPEG_QUALITY);
+  });
+
+  if (!jpegBlob) throw new Error("Nu am putut converti poza în JPEG pe web.");
+  return jpegBlob;
+}
+
 async function uploadImageToSupabase({ uri, userId, meta }) {
   if (!uri) throw new Error("Lipsește uri pentru upload.");
   if (!userId) throw new Error("Lipsește userId pentru upload.");
@@ -97,13 +132,11 @@ async function uploadImageToSupabase({ uri, userId, meta }) {
   const path = makeFilePath(userId);
 
   if (Platform.OS === "web") {
-    const res = await fetch(uri);
-    if (!res.ok) throw new Error("Nu pot citi poza (fetch a eșuat).");
-    const blob = await res.blob();
+    const jpegBlob = await normalizeToJpegWeb(uri);
 
     const { error: upErr } = await supabase.storage
       .from(STORAGE_BUCKET)
-      .upload(path, blob, { contentType: "image/jpeg", upsert: false });
+      .upload(path, jpegBlob, { contentType: "image/jpeg", upsert: false });
 
     if (upErr) throw upErr;
 
@@ -305,13 +338,14 @@ export default function AddItemScreen({ navigation }) {
           S.page,
           {
             paddingTop: insets.top + 10 + HEADER_BACK_SIZE + 18,
-            paddingBottom: Math.max(insets.bottom, 16) + 140,
+            paddingBottom: Math.max(insets.bottom, 16) + 18,
           },
         ]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        keyboardDismissMode="on-drag"
         onScrollBeginDrag={Keyboard.dismiss}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
       >
         <Text style={S.h1}>Adaugă un produs</Text>
 

@@ -1,11 +1,10 @@
 // src/screens/HomeScreen.js
 // COMPONENTĂ: HomeScreen
 // MODIFICARE:
-// - scos complet imagesCount din cardurile de Home
-// - nu se mai trimite numărul de poze nici la light, nici la dark
-// - FIX: la revenire pe Home se reîncarcă lista cu keepScroll
-// - FIX: refresh-ul la focus este silențios (fără loader mare pe ecran)
-// - restul logicii rămâne neschimbată
+// - dots-urile de pe carduri sunt acum centrate, albe și în stil apropiat de ItemDetails
+// - FIX: favoritele sunt normalizate pe chei string, ca să se încarce corect indiferent cum vine map-ul
+// - FIX: după toggle favorite facem refresh punctual pentru itemul respectiv, ca să nu rămână count/map greșit
+// - păstrat restul logicii existente (refresh silențios, keepScroll, create/update/delete local)
 
 import React, {
   useCallback,
@@ -43,6 +42,38 @@ import ItemCardLightWarm from "../components/ItemCardLightWarm";
 import ItemCardDarkProduct from "../components/ItemCardDarkProduct";
 
 import { ThemeContext } from "../theme/ThemeProvider";
+
+function pickById(map, id) {
+  if (!map) return undefined;
+
+  const sid = String(id ?? "");
+  const nid = Number(id);
+
+  if (sid && Object.prototype.hasOwnProperty.call(map, sid)) return map[sid];
+  if (!Number.isNaN(nid) && Object.prototype.hasOwnProperty.call(map, nid)) {
+    return map[nid];
+  }
+
+  return map[id];
+}
+
+function normalizeCountsMap(rawMap, ids = []) {
+  const next = {};
+  (ids || []).forEach((id) => {
+    const key = String(id);
+    next[key] = Number(pickById(rawMap, id) ?? 0);
+  });
+  return next;
+}
+
+function normalizeBoolMap(rawMap, ids = []) {
+  const next = {};
+  (ids || []).forEach((id) => {
+    const key = String(id);
+    next[key] = Boolean(pickById(rawMap, id));
+  });
+  return next;
+}
 
 export default function HomeScreen({ navigation, route, query, setQuery }) {
   const insets = useSafeAreaInsets();
@@ -105,6 +136,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
       try {
         const arr = Array.isArray(list) ? list : [];
         const ids = arr.map((it) => String(it.id));
+
         if (ids.length === 0) {
           setFavCounts({});
           setMyFavMap({});
@@ -113,15 +145,52 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
 
         const userId = session?.user?.id;
 
-        const [counts, mine] = await Promise.all([
+        const [countsRaw, mineRaw] = await Promise.all([
           fetchFavoritesCountsForItems(ids),
           userId ? fetchFavoritesMapForUser(userId, ids) : Promise.resolve({}),
         ]);
 
-        setFavCounts(counts || {});
-        setMyFavMap(mine || {});
-      } catch {
-        // silent
+        const nextCounts = normalizeCountsMap(countsRaw, ids);
+        const nextMine = normalizeBoolMap(mineRaw, ids);
+
+        setFavCounts(nextCounts);
+        setMyFavMap(nextMine);
+      } catch (err) {
+        console.log("⚠️ refreshFavsForList warning:", err);
+      }
+    },
+    [session?.user?.id],
+  );
+
+  const refreshSingleFav = useCallback(
+    async (itemId) => {
+      const sid = String(itemId || "");
+      if (!sid) return;
+
+      try {
+        const userId = session?.user?.id;
+
+        const [countsRaw, mineRaw] = await Promise.all([
+          fetchFavoritesCountsForItems([sid]),
+          userId
+            ? fetchFavoritesMapForUser(userId, [sid])
+            : Promise.resolve({}),
+        ]);
+
+        const count = Number(pickById(countsRaw, sid) ?? 0);
+        const mine = Boolean(pickById(mineRaw, sid));
+
+        setFavCounts((prev) => ({
+          ...(prev || {}),
+          [sid]: count,
+        }));
+
+        setMyFavMap((prev) => ({
+          ...(prev || {}),
+          [sid]: mine,
+        }));
+      } catch (err) {
+        console.log("⚠️ refreshSingleFav warning:", err);
       }
     },
     [session?.user?.id],
@@ -174,6 +243,11 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
       loadItems({ keepScroll: true, silent: true });
     }, [loadItems]),
   );
+
+  useEffect(() => {
+    if (!items?.length) return;
+    refreshFavsForList(items);
+  }, [session?.user?.id, items, refreshFavsForList]);
 
   useEffect(() => {
     const deletedId = route?.params?.deletedItemId;
@@ -326,6 +400,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
     const q = String(localQuery || "")
       .trim()
       .toLowerCase();
+
     let base = items;
 
     if (activeCat && activeCat !== "Toate") {
@@ -352,43 +427,44 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
     return Array.isArray(arr) ? arr.filter(Boolean) : [];
   }, []);
 
-  const renderDots = useCallback(
-    (images) => {
-      if (!Array.isArray(images) || images.length <= 1) return null;
+  const renderDots = useCallback((images) => {
+    if (!Array.isArray(images) || images.length <= 1) return null;
 
-      const max = Math.min(images.length, 6);
-      const rest = images.length - max;
+    const max = Math.min(images.length, 6);
+    const centerIndex = (max - 1) / 2;
 
-      return (
-        <View style={styles.dotsWrap} pointerEvents="none">
-          {Array.from({ length: max }).map((_, i) => (
+    return (
+      <View style={styles.dotsWrap} pointerEvents="none">
+        {Array.from({ length: max }).map((_, i) => {
+          const distance = Math.abs(i - centerIndex);
+
+          let size = 4;
+          if (distance < 0.5) size = 8;
+          else if (distance < 1.5) size = 6.5;
+          else if (distance < 2.5) size = 5.2;
+
+          const isFirst = i === 0;
+
+          return (
             <View
               key={i}
               style={[
                 styles.dot,
-                isDark ? styles.dotDark : styles.dotLight,
-                i === 0
-                  ? isDark
-                    ? styles.dotActiveDark
-                    : styles.dotActiveLight
-                  : null,
+                {
+                  width: size,
+                  height: size,
+                  borderRadius: size / 2,
+                  backgroundColor: isFirst
+                    ? "rgba(255,255,255,0.96)"
+                    : "rgba(255,255,255,0.46)",
+                },
               ]}
             />
-          ))}
-          {rest > 0 ? (
-            <View
-              style={[
-                styles.dot,
-                isDark ? styles.dotDark : styles.dotLight,
-                styles.dotMore,
-              ]}
-            />
-          ) : null}
-        </View>
-      );
-    },
-    [isDark],
-  );
+          );
+        })}
+      </View>
+    );
+  }, []);
 
   const onToggleFav = useCallback(
     async (e, item) => {
@@ -401,26 +477,39 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
       }
 
       const itemId = String(item?.id);
-      const isFav = !!myFavMap[itemId];
+      const wasFav = Boolean(myFavMap[itemId]);
 
-      setMyFavMap((prev) => ({ ...prev, [itemId]: !isFav }));
+      setMyFavMap((prev) => ({
+        ...(prev || {}),
+        [itemId]: !wasFav,
+      }));
+
       setFavCounts((prev) => ({
-        ...prev,
-        [itemId]: Math.max(0, (prev[itemId] || 0) + (isFav ? -1 : 1)),
+        ...(prev || {}),
+        [itemId]: Math.max(0, Number(prev?.[itemId] || 0) + (wasFav ? -1 : 1)),
       }));
 
       try {
-        await toggleFavorite({ userId, itemId, isFav });
+        await toggleFavorite({ userId, itemId, isFav: wasFav });
+        await refreshSingleFav(itemId);
       } catch (err) {
-        setMyFavMap((prev) => ({ ...prev, [itemId]: isFav }));
-        setFavCounts((prev) => ({
-          ...prev,
-          [itemId]: Math.max(0, (prev[itemId] || 0) + (isFav ? 1 : -1)),
-        }));
         console.log("❌ toggleFavorite error:", err);
+
+        setMyFavMap((prev) => ({
+          ...(prev || {}),
+          [itemId]: wasFav,
+        }));
+
+        setFavCounts((prev) => ({
+          ...(prev || {}),
+          [itemId]: Math.max(
+            0,
+            Number(prev?.[itemId] || 0) + (wasFav ? 1 : -1),
+          ),
+        }));
       }
     },
-    [session?.user?.id, myFavMap, navigation],
+    [session?.user?.id, myFavMap, navigation, refreshSingleFav],
   );
 
   const renderItem = useCallback(
@@ -429,8 +518,8 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
       const mainImage = images[0] || null;
 
       const itemId = String(item?.id);
-      const isFav = !!myFavMap[itemId];
-      const count = favCounts[itemId] || 0;
+      const isFav = Boolean(myFavMap[itemId]);
+      const count = Number(favCounts[itemId] || 0);
 
       const dots = renderDots(images);
       const onPressCard = () =>
@@ -673,18 +762,16 @@ const styles = StyleSheet.create({
 
   dotsWrap: {
     position: "absolute",
-    bottom: 18,
-    left: 18,
+    left: 0,
+    right: 0,
+    bottom: 14,
     flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 6,
-    opacity: 0.95,
+    opacity: 0.98,
   },
-  dot: { width: 7, height: 7, borderRadius: 99 },
-  dotLight: { backgroundColor: "rgba(0,0,0,0.22)" },
-  dotActiveLight: { backgroundColor: "rgba(0,0,0,0.62)" },
-  dotDark: { backgroundColor: "rgba(255,255,255,0.35)" },
-  dotActiveDark: { backgroundColor: "rgba(255,255,255,0.95)" },
-  dotMore: { opacity: 0.85 },
+  dot: {},
 
   center: {
     flex: 1,

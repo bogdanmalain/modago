@@ -1,6 +1,12 @@
 // src/theme/ThemeProvider.js
-// Provider global pentru tema aplicației (Auto/Manual) + hydrate din AsyncStorage.
-// Fix: nu mai avem "flash" pe light — putem folosi hydrateDone în AppNavigator (ThemeGate).
+// CE ESTE:
+// - provider global pentru tema aplicației (Auto / Manual)
+// - hidratează setările din AsyncStorage și expune tema/tokens în toată aplicația
+//
+// MODIFICĂRI:
+// - FIX: expune explicit `mode` și `manualScheme` în ThemeContext
+// - astfel, ProfileScreen poate afișa corect Auto / Light / Dark
+// - păstrată logica existentă de hydrate, persist și system theme
 
 import React, {
   createContext,
@@ -55,6 +61,8 @@ function getSafeTokens(scheme) {
 
 export const ThemeContext = createContext({
   settings: DEFAULT_SETTINGS,
+  mode: "auto",
+  manualScheme: "light",
   scheme: "light",
   tokens: getSafeTokens("light"),
   setAuto: () => {},
@@ -157,7 +165,9 @@ export function ThemeProvider({ children }) {
     [persist],
   );
 
-  const scheme = settings.mode === "auto" ? osScheme : settings.manualScheme;
+  const mode = settings?.mode === "manual" ? "manual" : "auto";
+  const manualScheme = settings?.manualScheme === "dark" ? "dark" : "light";
+  const scheme = mode === "auto" ? osScheme : manualScheme;
   const tokens = useMemo(() => getSafeTokens(scheme), [scheme]);
 
   const debug = useMemo(() => {
@@ -166,16 +176,18 @@ export function ThemeProvider({ children }) {
       hookScheme: hookScheme ?? "null",
       appearanceScheme: Appearance.getColorScheme() ?? "null",
       osScheme,
-      mode: settings?.mode,
-      manualScheme: settings?.manualScheme,
+      mode,
+      manualScheme,
       appliedScheme: scheme,
       hydrateDone,
     };
-  }, [hookScheme, osScheme, settings, scheme, hydrateDone]);
+  }, [hookScheme, osScheme, mode, manualScheme, scheme, hydrateDone]);
 
   const value = useMemo(
     () => ({
       settings,
+      mode,
+      manualScheme,
       scheme,
       tokens,
       setAuto,
@@ -186,6 +198,8 @@ export function ThemeProvider({ children }) {
     }),
     [
       settings,
+      mode,
+      manualScheme,
       scheme,
       tokens,
       setAuto,

@@ -1,14 +1,8 @@
 // src/navigation/AppNavigator.js
 // COMPONENTĂ: AppNavigator
 // MODIFICARE:
-// - MOBILE: ItemDetails, EditItem, MyItems, Favorites, ThemeSettings au fost scoase din Tab.Navigator
-// - MOBILE: aceste ecrane sunt acum în MobileRootStack, peste TabsRoot
-// - rezultat:
-//   • tabbar rămâne doar pe tab-urile reale
-//   • ecranele secundare se deschid ca stack screens
-//   • ItemDetails este pregătit pentru tranziție tip push din dreapta
-// - ImageViewer rămâne modal separat
-// - WEB rămâne neschimbat ca structură de stack
+// - adăugat EditProfileScreen în stack-ul mobil și web
+// - restul structurii de navigare rămâne neschimbat
 
 import React, {
   useEffect,
@@ -46,6 +40,7 @@ import ProfileScreen from "../screens/ProfileScreen";
 
 import ItemDetailsScreen from "../screens/ItemDetailsScreen";
 import EditItemScreen from "../screens/EditItemScreen";
+import EditProfileScreen from "../screens/EditProfileScreen";
 import ImageViewerScreen from "../screens/ImageViewerScreen";
 
 import WelcomeScreen from "../screens/WelcomeScreen";
@@ -137,6 +132,14 @@ function MobileRootStack() {
       />
 
       <Stack.Screen
+        name={ROUTES.EditProfile}
+        component={EditProfileScreen}
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+
+      <Stack.Screen
         name={ROUTES.MyItems}
         component={MyItemsScreen}
         options={{
@@ -187,6 +190,7 @@ function WebStack() {
       <Stack.Screen name={ROUTES.AddItem} component={AddItemScreen} />
       <Stack.Screen name={ROUTES.ItemDetails} component={ItemDetailsScreen} />
       <Stack.Screen name={ROUTES.EditItem} component={EditItemScreen} />
+      <Stack.Screen name={ROUTES.EditProfile} component={EditProfileScreen} />
       <Stack.Screen name={ROUTES.MyItems} component={MyItemsScreen} />
       <Stack.Screen name={ROUTES.Favorites} component={FavoritesScreen} />
       <Stack.Screen name={ROUTES.Profile} component={ProfileScreen} />

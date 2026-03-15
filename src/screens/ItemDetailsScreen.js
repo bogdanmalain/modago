@@ -1,17 +1,8 @@
 // src/screens/ItemDetailsScreen.js
 // COMPONENTĂ: ItemDetailsScreen
 // MODIFICARE:
-// - scos complet caruselul de thumbnails de sub imagine
-// - păstrat swipe pe hero
-// - păstrate dots pe imagine
-// - favorite mutat direct peste hero, în dreapta jos
-// - scos complet favBar de sub imagine
-// - dots mutate puțin mai la stânga/jos ca să nu se bată cu inima
-// - FIX: item NU mai este ținut în state local
-// - FIX: ecranul citește direct route.params.item, ca să nu mai facă flash cu poza veche
-// - FIX: la schimbarea item-ului se resetează doar UI-ul local (scroll, dots, menu)
-// - POLISH: favorite overlay mai contrastant pe imagini luminoase / întunecate
-// - restul logicii rămâne neschimbată
+// - textul explicativ de jos din primul sheet a fost rescris într-un stil apropiat de referința din imagine
+// - restul layout-ului și logicii rămân neschimbate
 
 import React, {
   useCallback,
@@ -32,16 +23,17 @@ import {
   Alert,
   Dimensions,
   Animated,
+  Easing,
   Share,
   Modal,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import {
-  deleteItemById,
   fetchMoreFromSeller,
   fetchSimilarItems,
 } from "../services/itemsService";
@@ -53,12 +45,12 @@ import {
 import { ThemeContext } from "../theme/ThemeProvider";
 import HeaderBackButton from "../components/HeaderBackButton";
 
-const FAV_ICON = 44;
 const BADGE_MIN = 22;
 const GLASS_H = 52;
 const RELATED_CARD_W = 156;
 const RELATED_IMG_H = 176;
 const HEADER_FADE_DISTANCE = 90;
+const STORAGE_BUCKET = "items";
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -78,6 +70,94 @@ function pickById(map, id) {
     return map[nid];
   }
   return map[id];
+}
+
+function normalizeImageEntries(item) {
+  const raw = item?.images || item?.image_urls || [];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(Boolean);
+}
+
+function extractStoragePathFromUrl(url, bucket = STORAGE_BUCKET) {
+  const value = String(url || "").trim();
+  if (!value) return null;
+
+  if (
+    !value.startsWith("http://") &&
+    !value.startsWith("https://") &&
+    !value.includes("/storage/v1/object/")
+  ) {
+    return value;
+  }
+
+  try {
+    const u = new URL(value);
+    const pathname = decodeURIComponent(u.pathname);
+
+    const publicMarker = `/storage/v1/object/public/${bucket}/`;
+    const signMarker = `/storage/v1/object/sign/${bucket}/`;
+    const renderMarker = `/storage/v1/object/render/image/public/${bucket}/`;
+
+    if (pathname.includes(publicMarker)) {
+      return pathname.split(publicMarker)[1] || null;
+    }
+
+    if (pathname.includes(signMarker)) {
+      return pathname.split(signMarker)[1] || null;
+    }
+
+    if (pathname.includes(renderMarker)) {
+      return pathname.split(renderMarker)[1] || null;
+    }
+
+    const idx = pathname.indexOf(`/${bucket}/`);
+    if (idx >= 0) {
+      return pathname.slice(idx + bucket.length + 2) || null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getStoragePathsFromItem(item, bucket = STORAGE_BUCKET) {
+  const entries = normalizeImageEntries(item);
+
+  const paths = entries
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return extractStoragePathFromUrl(entry, bucket);
+      }
+      if (entry?.url) return extractStoragePathFromUrl(entry.url, bucket);
+      if (entry?.uri) return extractStoragePathFromUrl(entry.uri, bucket);
+      return null;
+    })
+    .filter(Boolean);
+
+  return Array.from(new Set(paths));
+}
+
+async function deleteItemWithImages(item, bucket = STORAGE_BUCKET) {
+  if (!item?.id) throw new Error("Lipsește id-ul anunțului.");
+
+  const paths = getStoragePathsFromItem(item, bucket);
+
+  if (paths.length > 0) {
+    const { error: storageErr } = await supabase.storage
+      .from(bucket)
+      .remove(paths);
+    if (storageErr) {
+      console.log("⚠️ storage remove warning:", storageErr);
+    }
+  }
+
+  const { error: dbErr } = await supabase
+    .from("items")
+    .delete()
+    .eq("id", item.id);
+
+  if (dbErr) throw dbErr;
 }
 
 function buildSharePayload(item) {
@@ -106,6 +186,48 @@ function buildSharePayload(item) {
   };
 }
 
+function getDotMetrics(index, activeIndex) {
+  const distance = Math.abs(index - activeIndex);
+
+  if (distance === 0) return { size: 8 };
+  if (distance === 1) return { size: 6.8 };
+  if (distance === 2) return { size: 5.4 };
+
+  return { size: 4.2 };
+}
+
+function toPriceNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+
+  const cleaned = String(value ?? "")
+    .replace(/\s/g, "")
+    .replace("RON", "")
+    .replace("Lei", "")
+    .replace("lei", "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatRon(value) {
+  const n = Number(value || 0);
+  return `${n.toFixed(2).replace(".", ",")} RON`;
+}
+
+function calculateBuyerProtectionFee(price) {
+  const p = Number(price || 0);
+  return Number((p * 0.0675).toFixed(2));
+}
+
+function calculateShippingFrom(price) {
+  const p = Number(price || 0);
+  if (p >= 300) return 11.99;
+  if (p >= 150) return 8.89;
+  return 6.99;
+}
+
 export default function ItemDetailsScreen({ navigation, route }) {
   const { tokens } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -114,25 +236,28 @@ export default function ItemDetailsScreen({ navigation, route }) {
   const HERO_H = useMemo(() => Math.round(SCREEN_H * 0.6), [SCREEN_H]);
 
   const scrollY = useRef(new Animated.Value(0)).current;
+  const buyerSheetY = useRef(new Animated.Value(SCREEN_H)).current;
 
   const S = useMemo(
-    () => makeStyles(tokens, HERO_H, insets),
-    [tokens, HERO_H, insets],
+    () => makeStyles(tokens, HERO_H, insets, SCREEN_H),
+    [tokens, HERO_H, insets, SCREEN_H],
   );
 
-  const item = route?.params?.item || null;
+  const passedItem = route?.params?.item || null;
+  const item = passedItem;
 
   const [session, setSession] = useState(null);
   const [sessionReady, setSessionReady] = useState(false);
 
-  const [menuVisible, setMenuVisible] = useState(false);
-  const pendingSharePayloadRef = useRef(null);
+  const [infoSheetVisible, setInfoSheetVisible] = useState(false);
+  const [buyerSheetMounted, setBuyerSheetMounted] = useState(false);
 
   const heroScrollRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const heroPressRef = useRef(null);
 
   const pulse = useRef(new Animated.Value(1)).current;
+  const dotsAnim = useRef(new Animated.Value(0)).current;
 
   const [moreFromSeller, setMoreFromSeller] = useState([]);
   const [similarItems, setSimilarItems] = useState([]);
@@ -140,17 +265,46 @@ export default function ItemDetailsScreen({ navigation, route }) {
 
   useEffect(() => {
     setActiveIndex(0);
-    setMenuVisible(false);
-    pendingSharePayloadRef.current = null;
     scrollY.setValue(0);
+    dotsAnim.setValue(0);
+    setInfoSheetVisible(false);
+    setBuyerSheetMounted(false);
+    buyerSheetY.setValue(SCREEN_H);
 
     try {
       heroScrollRef.current?.scrollTo?.({ x: 0, y: 0, animated: false });
     } catch {}
-  }, [route?.params?.item?.id, scrollY]);
+  }, [route?.params?.item?.id, scrollY, dotsAnim, buyerSheetY, SCREEN_H]);
+
+  useEffect(() => {
+    Animated.timing(dotsAnim, {
+      toValue: activeIndex,
+      duration: 180,
+      useNativeDriver: false,
+    }).start();
+  }, [activeIndex, dotsAnim]);
 
   const itemId = useMemo(() => (item?.id ? String(item.id) : null), [item]);
   const userId = session?.user?.id || null;
+
+  const numericPrice = useMemo(() => toPriceNumber(item?.price), [item?.price]);
+  const buyerProtectionFee = useMemo(
+    () => calculateBuyerProtectionFee(numericPrice || 0),
+    [numericPrice],
+  );
+  const shippingFrom = useMemo(
+    () => calculateShippingFrom(numericPrice || 0),
+    [numericPrice],
+  );
+  const totalIncl = useMemo(
+    () =>
+      Number(
+        (Number(numericPrice || 0) + Number(buyerProtectionFee || 0)).toFixed(
+          2,
+        ),
+      ),
+    [numericPrice, buyerProtectionFee],
+  );
 
   const isOwner = useMemo(() => {
     if (!userId || !item?.user_id) return false;
@@ -265,9 +419,18 @@ export default function ItemDetailsScreen({ navigation, route }) {
   );
 
   const goBackSafe = useCallback(() => {
-    if (navigation?.canGoBack?.()) navigation.goBack();
-    else navigation.navigate(ROUTES.Home);
-  }, [navigation]);
+    if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+      return;
+    }
+
+    if (passedItem) {
+      navigation.navigate(ROUTES.ItemDetails, { item: passedItem });
+      return;
+    }
+
+    navigation.navigate("TabsRoot", { screen: ROUTES.Home });
+  }, [navigation, passedItem]);
 
   const runPulse = useCallback(() => {
     pulse.setValue(1);
@@ -284,6 +447,54 @@ export default function ItemDetailsScreen({ navigation, route }) {
       }),
     ]).start();
   }, [pulse]);
+
+  const openPriceSheet = useCallback(() => {
+    setInfoSheetVisible(true);
+    setBuyerSheetMounted(false);
+    buyerSheetY.setValue(SCREEN_H);
+  }, [buyerSheetY, SCREEN_H]);
+
+  const closeBuyerSheetOnly = useCallback(() => {
+    Animated.timing(buyerSheetY, {
+      toValue: SCREEN_H,
+      duration: 340,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => {
+      setBuyerSheetMounted(false);
+    });
+  }, [buyerSheetY, SCREEN_H]);
+
+  const closeInfoSheet = useCallback(() => {
+    if (buyerSheetMounted) {
+      Animated.timing(buyerSheetY, {
+        toValue: SCREEN_H,
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(() => {
+        setBuyerSheetMounted(false);
+        setInfoSheetVisible(false);
+        buyerSheetY.setValue(SCREEN_H);
+      });
+      return;
+    }
+
+    setInfoSheetVisible(false);
+    buyerSheetY.setValue(SCREEN_H);
+  }, [buyerSheetMounted, buyerSheetY, SCREEN_H]);
+
+  const openBuyerProtectionInsideSheet = useCallback(() => {
+    setBuyerSheetMounted(true);
+    buyerSheetY.setValue(SCREEN_H);
+
+    Animated.timing(buyerSheetY, {
+      toValue: 0,
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [buyerSheetY, SCREEN_H]);
 
   const onToggleFav = useCallback(async () => {
     if (!userId) {
@@ -314,7 +525,7 @@ export default function ItemDetailsScreen({ navigation, route }) {
   }, [userId, itemId, isFav, navigation, loadFavInfo, runPulse]);
 
   const onDelete = useCallback(async () => {
-    if (!itemId) return;
+    if (!item?.id) return;
 
     Alert.alert("Șterge anunțul?", "Sigur vrei să-l ștergi?", [
       { text: "Anulează", style: "cancel" },
@@ -323,15 +534,18 @@ export default function ItemDetailsScreen({ navigation, route }) {
         style: "destructive",
         onPress: async () => {
           try {
-            await deleteItemById(itemId);
+            await deleteItemWithImages(item, STORAGE_BUCKET);
 
             Alert.alert("Șters", "Anunțul a fost șters.", [
               {
                 text: "OK",
                 onPress: () => {
-                  navigation.navigate(ROUTES.Home, {
-                    deletedItemId: String(itemId),
-                    deletedAt: Date.now(),
+                  navigation.navigate("TabsRoot", {
+                    screen: ROUTES.Home,
+                    params: {
+                      deletedItemId: String(item.id),
+                      deletedAt: Date.now(),
+                    },
                   });
                 },
               },
@@ -342,7 +556,7 @@ export default function ItemDetailsScreen({ navigation, route }) {
         },
       },
     ]);
-  }, [itemId, navigation]);
+  }, [item, navigation]);
 
   const onEdit = useCallback(() => {
     if (!item) return;
@@ -400,13 +614,11 @@ export default function ItemDetailsScreen({ navigation, route }) {
     [navigation],
   );
 
-  const runPendingShare = useCallback(async () => {
-    const payload = pendingSharePayloadRef.current;
-    if (!payload) return;
-
-    pendingSharePayloadRef.current = null;
+  const onShareItem = useCallback(async () => {
+    if (!item) return;
 
     try {
+      const payload = buildSharePayload(item);
       await Share.share({
         title: payload.title,
         message: payload.message,
@@ -415,18 +627,37 @@ export default function ItemDetailsScreen({ navigation, route }) {
     } catch (e) {
       console.log("❌ share error:", e);
     }
-  }, []);
-
-  const onShareItem = useCallback(() => {
-    if (!item) return;
-
-    pendingSharePayloadRef.current = buildSharePayload(item);
-    setMenuVisible(false);
   }, [item]);
 
-  const onOpenMenu = useCallback(() => {
-    setMenuVisible(true);
-  }, []);
+  const onChatPress = useCallback(() => {
+    if (!session?.user?.id) {
+      navigation.navigate(ROUTES.Login);
+      return;
+    }
+
+    if (isOwner) {
+      Alert.alert(
+        "Anunțul tău",
+        "Nu poți deschide chat pentru propriul tău anunț.",
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Chat",
+      "Zona de chat pentru acest anunț o legăm în pasul următor.",
+    );
+  }, [session?.user?.id, navigation, isOwner]);
+
+  const onOwnerLongPress = useCallback(() => {
+    if (!isOwner) return;
+
+    Alert.alert("Acțiuni anunț", "Alege ce vrei să faci.", [
+      { text: "Anulează", style: "cancel" },
+      { text: "Editare", onPress: onEdit },
+      { text: "Ștergere", style: "destructive", onPress: onDelete },
+    ]);
+  }, [isOwner, onEdit, onDelete]);
 
   const renderRelatedCard = useCallback(
     (relatedItem) => {
@@ -515,7 +746,9 @@ export default function ItemDetailsScreen({ navigation, route }) {
 
           <TouchableOpacity
             style={S.primaryBtn}
-            onPress={() => navigation.navigate(ROUTES.Home)}
+            onPress={() =>
+              navigation.navigate("TabsRoot", { screen: ROUTES.Home })
+            }
             activeOpacity={0.9}
           >
             <Text style={S.primaryText}>Mergi la Home</Text>
@@ -530,30 +763,15 @@ export default function ItemDetailsScreen({ navigation, route }) {
   return (
     <View style={S.safe}>
       <Animated.View
-        style={[
-          S.stickyHeaderBg,
-          {
-            opacity: stickyBgOpacity,
-          },
-        ]}
+        style={[S.stickyHeaderBg, { opacity: stickyBgOpacity }]}
         pointerEvents="none"
       />
       <Animated.View
-        style={[
-          S.stickyHeaderBorder,
-          {
-            opacity: stickyBorderOpacity,
-          },
-        ]}
+        style={[S.stickyHeaderBorder, { opacity: stickyBorderOpacity }]}
         pointerEvents="none"
       />
       <Animated.View
-        style={[
-          S.stickyHeaderShadow,
-          {
-            opacity: stickyShadowOpacity,
-          },
-        ]}
+        style={[S.stickyHeaderShadow, { opacity: stickyShadowOpacity }]}
         pointerEvents="none"
       />
 
@@ -567,18 +785,7 @@ export default function ItemDetailsScreen({ navigation, route }) {
           size={GLASS_H}
           style={S.headerBackBtn}
         />
-
         <View style={{ flex: 1 }} />
-
-        <HeaderBackButton
-          onPress={onOpenMenu}
-          absolute={false}
-          size={GLASS_H}
-          style={S.headerDotsBtn}
-          iconStyle={S.dotsIconFix}
-        >
-          <Text style={S.glassDots}>•••</Text>
-        </HeaderBackButton>
       </View>
 
       <Animated.ScrollView
@@ -624,74 +831,129 @@ export default function ItemDetailsScreen({ navigation, route }) {
           </ScrollView>
 
           {images.length > 1 ? (
-            <View style={S.dots}>
-              {images.map((_, i) => (
-                <View
-                  key={i}
-                  style={[S.dot, i === activeIndex && S.dotActive]}
-                />
-              ))}
+            <View style={S.imageDotsWrap} pointerEvents="none">
+              {images.map((_, i) => {
+                const { size } = getDotMetrics(i, activeIndex);
+
+                const animatedScale = dotsAnim.interpolate({
+                  inputRange: [i - 2, i - 1, i, i + 1, i + 2],
+                  outputRange: [0.88, 0.95, 1.08, 0.95, 0.88],
+                  extrapolate: "clamp",
+                });
+
+                const animatedOpacity = dotsAnim.interpolate({
+                  inputRange: [i - 2, i - 1, i, i + 1, i + 2],
+                  outputRange: [0.42, 0.7, 1, 0.7, 0.42],
+                  extrapolate: "clamp",
+                });
+
+                return (
+                  <Animated.View
+                    key={i}
+                    style={[
+                      S.imageDotBase,
+                      {
+                        width: size,
+                        height: size,
+                        borderRadius: size / 2,
+                        transform: [{ scale: animatedScale }],
+                        opacity: animatedOpacity,
+                      },
+                    ]}
+                  />
+                );
+              })}
             </View>
           ) : null}
+        </View>
 
-          <View style={S.favOverlayWrap}>
-            <View style={{ position: "relative" }}>
-              <Pressable
+        <View style={S.socialRowWrap}>
+          <View style={S.socialRow}>
+            <View style={S.socialLeft}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={S.socialIconButton}
                 onPress={onToggleFav}
+                onLongPress={onOwnerLongPress}
                 disabled={favLoading}
-                hitSlop={8}
               >
-                <Animated.View
-                  style={[
-                    S.favCircle,
-                    isFav ? S.favCircleActive : S.favCircleIdle,
-                    { transform: [{ scale: pulse }] },
-                  ]}
-                >
-                  {!isFav ? (
-                    <Text style={S.heartGhost}>♡</Text>
-                  ) : (
-                    <Text style={S.heartSolid}>❤</Text>
-                  )}
+                <Animated.View style={{ transform: [{ scale: pulse }] }}>
+                  <Ionicons
+                    name={isFav ? "heart" : "heart-outline"}
+                    size={31}
+                    color={isFav ? S.__dangerColor : S.__iconColor}
+                  />
                 </Animated.View>
-              </Pressable>
 
-              {favCount > 0 ? (
-                <View style={[S.countPill, { minWidth: dynamicBadgeWidth }]}>
-                  <Text style={S.countText}>{countText}</Text>
-                </View>
-              ) : null}
+                {favCount > 0 ? (
+                  <View style={[S.countPill, { minWidth: dynamicBadgeWidth }]}>
+                    <Text style={S.countText}>{countText}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={S.socialIconButton}
+                onPress={onChatPress}
+              >
+                <Ionicons
+                  name="chatbubble-outline"
+                  size={29}
+                  color={S.__iconColor}
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={S.socialIconButton}
+                onPress={onShareItem}
+              >
+                <Ionicons
+                  name="paper-plane-outline"
+                  size={29}
+                  color={S.__iconColor}
+                />
+              </TouchableOpacity>
             </View>
           </View>
         </View>
 
-        {isOwner ? (
-          <View style={S.ownerRow}>
-            <TouchableOpacity
-              style={[S.ownerBtn, S.ownerBtnEdit]}
-              onPress={onEdit}
-              activeOpacity={0.9}
-            >
-              <Text style={S.ownerBtnText}>Editează</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[S.ownerBtn, S.ownerBtnDel]}
-              onPress={onDelete}
-              activeOpacity={0.9}
-            >
-              <Text style={S.ownerBtnText}>Șterge</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
         <View style={S.contentWrap}>
           <Text style={S.title}>{item.title || "Produs"}</Text>
 
-          <Text style={S.price}>
-            {typeof item.price === "number" ? item.price : item.price || "-"}{" "}
-            lei
+          <Text style={S.priceMain}>
+            {numericPrice !== null
+              ? formatRon(numericPrice)
+              : `${item.price || "-"} lei`}
           </Text>
+
+          {numericPrice !== null ? (
+            <View style={S.inclRowWrap}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={S.inclRow}
+                onPress={openPriceSheet}
+              >
+                <Text style={S.priceInclText}>
+                  {formatRon(totalIncl)} incl.
+                </Text>
+
+                <View style={S.inclIcons}>
+                  <Ionicons
+                    name="shield-checkmark-outline"
+                    size={15}
+                    color={S.__primaryColor}
+                  />
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={16}
+                    color={S.__primaryColor}
+                  />
+                </View>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
           {!!item.category ? (
             <Text style={S.cat}>Categorie: {item.category}</Text>
@@ -733,46 +995,299 @@ export default function ItemDetailsScreen({ navigation, route }) {
       </Animated.ScrollView>
 
       <Modal
-        visible={menuVisible}
+        visible={infoSheetVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setMenuVisible(false)}
-        onDismiss={runPendingShare}
+        onRequestClose={closeInfoSheet}
       >
-        <View style={S.menuOverlay}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setMenuVisible(false)}
-          />
+        <View style={S.sheetOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeInfoSheet} />
 
-          <View style={S.menuSheetWrap}>
-            <View style={S.menuSheet}>
-              <TouchableOpacity
-                activeOpacity={0.88}
-                style={S.menuAction}
-                onPress={onShareItem}
+          <View style={S.sheetWrap}>
+            <View style={S.sheetHandle} />
+
+            <View style={S.sheetCard}>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={S.priceSheetScrollContent}
               >
-                <Text style={S.menuActionText}>Partajare</Text>
-              </TouchableOpacity>
+                <View style={S.sheetHeader}>
+                  <View>
+                    <Text style={S.sheetEyebrow}>ModaGo</Text>
+                    <Text style={S.sheetTitle}>Cum se formează prețul</Text>
+                  </View>
 
-              <View style={S.menuDivider} />
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={closeInfoSheet}
+                    style={S.sheetCloseBtn}
+                  >
+                    <Ionicons name="close" size={26} color={S.__iconColor} />
+                  </TouchableOpacity>
+                </View>
 
-              <TouchableOpacity
-                activeOpacity={0.88}
-                style={S.menuAction}
-                onPress={() => setMenuVisible(false)}
-              >
-                <Text style={S.menuCancelText}>Închidere</Text>
-              </TouchableOpacity>
+                <Text style={S.sheetIntro}>
+                  Vezi rapid din ce este compus costul estimat pentru acest
+                  articol.
+                </Text>
+
+                <View style={S.breakdownList}>
+                  <View style={S.breakdownCard}>
+                    <View style={S.breakdownIconWrap}>
+                      <Ionicons
+                        name="pricetag-outline"
+                        size={18}
+                        color={S.__primaryColor}
+                      />
+                    </View>
+                    <View style={S.breakdownContent}>
+                      <Text style={S.breakdownLabel}>Preț articol</Text>
+                      <Text style={S.breakdownHint}>
+                        Prețul setat de vânzător.
+                      </Text>
+                    </View>
+                    <Text style={S.breakdownValue}>
+                      {numericPrice !== null
+                        ? formatRon(numericPrice)
+                        : `${item.price || "-"} lei`}
+                    </Text>
+                  </View>
+
+                  <View style={S.breakdownCard}>
+                    <View style={S.breakdownIconWrap}>
+                      <Ionicons
+                        name="shield-checkmark-outline"
+                        size={18}
+                        color={S.__primaryColor}
+                      />
+                    </View>
+
+                    <View style={S.breakdownContent}>
+                      <View style={S.breakdownLabelRow}>
+                        <Text style={S.breakdownLabel}>
+                          Protecție cumpărător
+                        </Text>
+
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={openBuyerProtectionInsideSheet}
+                          style={S.inlineInfoBtn}
+                        >
+                          <Ionicons
+                            name="information-circle-outline"
+                            size={18}
+                            color={S.__primaryColor}
+                          />
+                        </TouchableOpacity>
+                      </View>
+
+                      <Text style={S.breakdownHint}>
+                        Acoperă suportul pentru comandă și siguranța
+                        tranzacției.
+                      </Text>
+                    </View>
+
+                    <Text style={S.breakdownValue}>
+                      {formatRon(buyerProtectionFee)}
+                    </Text>
+                  </View>
+
+                  <View style={S.breakdownCard}>
+                    <View style={S.breakdownIconWrap}>
+                      <Ionicons
+                        name="cube-outline"
+                        size={18}
+                        color={S.__primaryColor}
+                      />
+                    </View>
+                    <View style={S.breakdownContent}>
+                      <Text style={S.breakdownLabel}>Livrare estimată</Text>
+                      <Text style={S.breakdownHint}>
+                        Costul final depinde de metoda de expediere aleasă.
+                      </Text>
+                    </View>
+                    <Text style={S.breakdownValue}>
+                      de la {formatRon(shippingFrom)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={S.totalCard}>
+                  <View style={S.totalTopRow}>
+                    <Text style={S.totalLabel}>Total estimat</Text>
+                    <Text style={S.totalValue}>{formatRon(totalIncl)}</Text>
+                  </View>
+
+                  <Text style={S.totalSubtext}>
+                    {formatRon(totalIncl)} + livrarea selectată la checkout.
+                  </Text>
+                </View>
+
+                <Text style={S.sheetNote}>
+                  Taxa de protecție pentru cumpărător este obligatorie atunci
+                  când achiziționezi un articol. Aceasta se adaugă la fiecare
+                  comandă finalizată prin cumpărare. Prețul articolului este
+                  stabilit de vânzător și poate face obiectul negocierii.
+                </Text>
+              </ScrollView>
             </View>
           </View>
+
+          {buyerSheetMounted ? (
+            <Animated.View
+              style={[
+                S.buyerOverlaySheet,
+                {
+                  transform: [{ translateY: buyerSheetY }],
+                },
+              ]}
+            >
+              <View style={S.buyerHandleWrap}>
+                <View style={S.sheetHandle} />
+              </View>
+
+              <View style={S.protectionSheetHeader}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={closeBuyerSheetOnly}
+                  style={S.protectionBackBtn}
+                >
+                  <Ionicons
+                    name="chevron-back"
+                    size={22}
+                    color={S.__iconColor}
+                  />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={closeInfoSheet}
+                  style={S.sheetCloseBtn}
+                >
+                  <Ionicons name="close" size={26} color={S.__iconColor} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={S.protectionSheetScrollContent}
+              >
+                <View style={S.protectionHero}>
+                  <View style={S.protectionHeroIcon}>
+                    <Ionicons
+                      name="shield-checkmark"
+                      size={34}
+                      color={S.__primaryColor}
+                    />
+                  </View>
+
+                  <Text style={S.protectionTitle}>
+                    Protecția cumpărătorului
+                  </Text>
+
+                  <Text style={S.protectionLink}>
+                    Află cum calculăm taxa de protecție a cumpărătorului
+                  </Text>
+                </View>
+
+                <View style={S.protectionSection}>
+                  <View style={S.protectionSectionHeader}>
+                    <Ionicons
+                      name="cash-outline"
+                      size={24}
+                      color={S.__primaryColor}
+                    />
+                    <Text style={S.protectionSectionTitle}>
+                      Politica de rambursare
+                    </Text>
+                  </View>
+
+                  <Text style={S.protectionText}>
+                    Poți primi o rambursare în cazul în care comanda:
+                  </Text>
+                  <Text style={S.protectionBullet}>
+                    • nu a fost expediată sau s-a pierdut
+                  </Text>
+                  <Text style={S.protectionBullet}>• sosește deteriorată</Text>
+                  <Text style={S.protectionBullet}>
+                    • este neconformă cu descrierea
+                  </Text>
+
+                  <Text style={S.protectionParagraph}>
+                    Ai la dispoziție 2 zile pentru a trimite o reclamație de la
+                    data când primești notificarea că un articol a fost livrat,
+                    chiar dacă acesta nu a sosit.
+                  </Text>
+
+                  <Text style={S.protectionParagraph}>
+                    Cumpărătorii suportă costul returnării unui articol, dacă nu
+                    există alt acord.
+                  </Text>
+                </View>
+
+                <View style={S.protectionSection}>
+                  <View style={S.protectionSectionHeader}>
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={24}
+                      color={S.__primaryColor}
+                    />
+                    <Text style={S.protectionSectionTitle}>
+                      Tranzacții securizate
+                    </Text>
+                  </View>
+
+                  <Text style={S.protectionParagraph}>
+                    Banii tăi sunt păstrați în siguranță pe toată durata
+                    tranzacției. Nu îi vom elibera vânzătorului până când nu
+                    primești comanda și confirmi că totul este în regulă.
+                  </Text>
+
+                  <Text style={S.protectionParagraph}>
+                    Plățile sunt criptate de partenerul nostru de plată, astfel
+                    încât banii tăi sunt întotdeauna trimiși și primiți în
+                    siguranță. Vânzătorul nu va vedea niciodată detaliile tale
+                    de plată.
+                  </Text>
+                </View>
+
+                <View style={S.protectionSection}>
+                  <View style={S.protectionSectionHeader}>
+                    <Ionicons
+                      name="chatbubble-ellipses-outline"
+                      size={24}
+                      color={S.__primaryColor}
+                    />
+                    <Text style={S.protectionSectionTitle}>
+                      Asistența noastră
+                    </Text>
+                  </View>
+
+                  <Text style={S.protectionParagraph}>
+                    Contactează oricând echipa noastră de asistență, îți stă la
+                    dispoziție pentru a-ți oferi ajutor.
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  style={S.protectionPrimaryBtn}
+                  onPress={closeInfoSheet}
+                >
+                  <Text style={S.protectionPrimaryBtnText}>Am înțeles</Text>
+                </TouchableOpacity>
+
+                <View style={{ height: Math.max(insets.bottom, 24) }} />
+              </ScrollView>
+            </Animated.View>
+          ) : null}
         </View>
       </Modal>
     </View>
   );
 }
 
-function makeStyles(tokens, HERO_H, insets) {
+function makeStyles(tokens, HERO_H, insets, SCREEN_H) {
   const isDark = tokens?.scheme === "dark";
 
   const bg = pickTok(tokens, "bg", "#0B1220");
@@ -792,40 +1307,20 @@ function makeStyles(tokens, HERO_H, insets) {
 
   const stickyBg = isDark ? "rgba(11,18,32,0.88)" : "rgba(255,255,255,0.88)";
   const stickyBorder = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
-  const glassText = isDark ? "rgba(255,255,255,0.90)" : "rgba(0,0,0,0.75)";
+  const iconColor = pickTok(tokens, "text", text);
 
-  const glassMenuBg = isDark ? "rgba(10,14,22,0.42)" : "rgba(255,255,255,0.62)";
-  const glassMenuDivider = isDark
-    ? "rgba(255,255,255,0.10)"
-    : "rgba(0,0,0,0.08)";
-  const overlayBg = isDark ? "rgba(0,0,0,0.28)" : "rgba(15,23,42,0.14)";
-
-  const favIdleBg = pickTok(tokens, "favIdleBg", "rgba(10,14,22,0.34)");
-  const favIdleBorder = pickTok(
+  const sheetBg = pickTok(tokens, "card", isDark ? "#0F172A" : "#FFFFFF");
+  const sheetOverlay = isDark ? "rgba(0,0,0,0.46)" : "rgba(15,23,42,0.30)";
+  const surfaceSoft = pickTok(
     tokens,
-    "favIdleBorder",
-    "rgba(255,255,255,0.22)",
+    "surfaceSoft",
+    isDark ? "rgba(255,255,255,0.05)" : "#F5F6F7",
   );
-  const favGhost = pickTok(tokens, "favGhost", "rgba(255,255,255,0.96)");
-  const favActiveBg = pickTok(tokens, "favActiveBg", "rgba(255,255,255,0.94)");
-  const favActiveBorder = pickTok(
-    tokens,
-    "favActiveBorder",
-    "rgba(255,255,255,0.42)",
-  );
-  const badgeBorder = pickTok(tokens, "badgeBorder", "rgba(255,255,255,0.95)");
-
-  const menuActionColor = pickTok(
-    tokens,
-    "primary",
-    isDark ? "#60A5FA" : "#2CA6A4",
-  );
-
-  const menuCancelColor = pickTok(
-    tokens,
-    "primary",
-    isDark ? "#60A5FA" : "#2CA6A4",
-  );
+  const handleColor = isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.18)";
+  const accentSoft = isDark ? "rgba(44,166,164,0.12)" : "rgba(44,166,164,0.10)";
+  const accentBorder = isDark
+    ? "rgba(44,166,164,0.22)"
+    : "rgba(44,166,164,0.18)";
 
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: bg },
@@ -886,80 +1381,55 @@ function makeStyles(tokens, HERO_H, insets) {
     noImg: { alignItems: "center", justifyContent: "center" },
     noImgText: { color: onPrimary, fontWeight: "900" },
 
+    imageDotsWrap: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 7,
+      zIndex: 20,
+    },
+    imageDotBase: {
+      backgroundColor: "rgba(255,255,255,0.96)",
+    },
+
     headerBackBtn: {
       width: GLASS_H,
       height: GLASS_H,
       borderRadius: 999,
     },
-    headerDotsBtn: {
-      width: GLASS_H,
-      height: GLASS_H,
-      borderRadius: 999,
-    },
-    glassDots: {
-      fontSize: 20,
-      lineHeight: 22,
-      fontWeight: "600",
-      color: glassText,
-      textAlign: "center",
-      textAlignVertical: "center",
-      includeFontPadding: false,
-      letterSpacing: 2,
-      marginTop: -1,
-    },
-    dotsIconFix: {
-      marginLeft: 0,
-      marginTop: 0,
-    },
 
-    dots: {
-      position: "absolute",
-      bottom: 18,
-      left: 0,
-      right: 50,
+    socialRowWrap: {
+      paddingHorizontal: 14,
+      paddingTop: 10,
+      paddingBottom: 2,
+    },
+    socialRow: {
+      minHeight: 42,
       flexDirection: "row",
-      justifyContent: "center",
-      gap: 7,
+      alignItems: "center",
+      justifyContent: "space-between",
     },
-    dot: {
-      width: 7,
-      height: 7,
-      borderRadius: 99,
-      backgroundColor: "rgba(255,255,255,0.35)",
+    socialLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 16,
     },
-    dotActive: { backgroundColor: "rgba(255,255,255,0.95)" },
-
-    favOverlayWrap: {
-      position: "absolute",
-      right: 16,
-      bottom: 16,
-      zIndex: 12,
-    },
-
-    favCircle: {
-      width: FAV_ICON,
-      height: FAV_ICON,
-      borderRadius: FAV_ICON / 2,
+    socialIconButton: {
+      minWidth: 30,
+      minHeight: 30,
       alignItems: "center",
       justifyContent: "center",
+      position: "relative",
     },
-    favCircleIdle: {
-      backgroundColor: favIdleBg,
-      borderWidth: 1.5,
-      borderColor: favIdleBorder,
-    },
-    favCircleActive: {
-      backgroundColor: favActiveBg,
-      borderWidth: 2,
-      borderColor: favActiveBorder,
-    },
-    heartGhost: { fontSize: 19, color: favGhost, fontWeight: "900" },
-    heartSolid: { fontSize: 19, color: danger, fontWeight: "900" },
 
     countPill: {
       position: "absolute",
-      right: -6,
-      bottom: -6,
+      right: -9,
+      bottom: -8,
       height: BADGE_MIN,
       paddingHorizontal: 6,
       borderRadius: 999,
@@ -967,40 +1437,77 @@ function makeStyles(tokens, HERO_H, insets) {
       alignItems: "center",
       justifyContent: "center",
       borderWidth: 2,
-      borderColor: badgeBorder,
+      borderColor: bg,
       zIndex: 10,
     },
-    countText: { color: "#fff", fontSize: 12, fontWeight: "900" },
-
-    ownerRow: {
-      flexDirection: "row",
-      gap: 10,
-      paddingHorizontal: 16,
-      paddingTop: 12,
-      paddingBottom: 8,
-      backgroundColor: bg,
+    countText: {
+      color: "#fff",
+      fontSize: 12,
+      fontWeight: "900",
     },
-    ownerBtn: {
-      flex: 1,
-      height: 44,
-      borderRadius: 12,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    ownerBtnEdit: { backgroundColor: primary },
-    ownerBtnDel: { backgroundColor: danger },
-    ownerBtnText: { color: onPrimary, fontWeight: "900", fontSize: 16 },
 
     contentWrap: {
       padding: 16,
+      paddingTop: 6,
       paddingBottom: 26,
     },
 
-    title: { fontSize: 40, fontWeight: "900", marginTop: 6, color: text },
-    price: { fontSize: 34, fontWeight: "900", color: primary, marginTop: 6 },
-    cat: { marginTop: 10, color: muted, fontWeight: "800" },
-    section: { marginTop: 22, fontSize: 22, fontWeight: "900", color: text },
-    desc: { marginTop: 8, fontSize: 16, lineHeight: 22, color: text },
+    title: {
+      fontSize: 28,
+      fontWeight: "700",
+      marginTop: 6,
+      color: text,
+      lineHeight: 33,
+      letterSpacing: -0.2,
+    },
+    priceMain: {
+      fontSize: 18,
+      fontWeight: "500",
+      color: text,
+      marginTop: 10,
+      lineHeight: 22,
+    },
+    inclRowWrap: {
+      marginTop: 2,
+      alignItems: "flex-start",
+    },
+    inclRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingVertical: 2,
+    },
+    priceInclText: {
+      fontSize: 17,
+      fontWeight: "500",
+      color: primary,
+      lineHeight: 22,
+    },
+    inclIcons: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 3,
+      marginTop: 1,
+    },
+
+    cat: {
+      marginTop: 10,
+      color: muted,
+      fontWeight: "800",
+      fontSize: 13,
+    },
+    section: {
+      marginTop: 22,
+      fontSize: 22,
+      fontWeight: "900",
+      color: text,
+    },
+    desc: {
+      marginTop: 8,
+      fontSize: 16,
+      lineHeight: 22,
+      color: text,
+    },
 
     relatedSection: {
       marginTop: 24,
@@ -1063,7 +1570,10 @@ function makeStyles(tokens, HERO_H, insets) {
       fontSize: 13,
     },
 
-    topBar: { paddingHorizontal: 14, paddingBottom: 8 },
+    topBar: {
+      paddingHorizontal: 14,
+      paddingBottom: 8,
+    },
 
     inlineBackBtn: {
       shadowOpacity: 0.08,
@@ -1099,54 +1609,314 @@ function makeStyles(tokens, HERO_H, insets) {
       alignItems: "center",
       justifyContent: "center",
     },
-    primaryText: { color: onPrimary, fontWeight: "900" },
+    primaryText: {
+      color: onPrimary,
+      fontWeight: "900",
+    },
 
-    menuOverlay: {
+    sheetOverlay: {
       flex: 1,
       justifyContent: "flex-end",
-      backgroundColor: overlayBg,
+      backgroundColor: sheetOverlay,
     },
-
-    menuSheetWrap: {
-      paddingHorizontal: 14,
-      paddingBottom: Math.max(insets.bottom, 10) + 10,
+    sheetWrap: {
+      paddingHorizontal: 0,
+      paddingBottom: 0,
     },
-
-    menuSheet: {
-      borderRadius: 22,
+    sheetHandle: {
+      alignSelf: "center",
+      width: 44,
+      height: 5,
+      borderRadius: 999,
+      backgroundColor: handleColor,
+      marginBottom: 10,
+    },
+    sheetCard: {
+      backgroundColor: sheetBg,
+      borderTopLeftRadius: 26,
+      borderTopRightRadius: 26,
+      borderBottomLeftRadius: 0,
+      borderBottomRightRadius: 0,
       overflow: "hidden",
-      backgroundColor: glassMenuBg,
       borderWidth: 1,
-      borderColor: glassMenuDivider,
-      shadowColor,
-      shadowOpacity: isDark ? 0.16 : 0.08,
-      shadowRadius: 14,
-      shadowOffset: { width: 0, height: 8 },
-      elevation: 6,
+      borderColor: border,
+      maxHeight: SCREEN_H * 0.76,
+      minHeight: SCREEN_H * 0.6,
     },
-
-    menuAction: {
-      minHeight: 72,
+    priceSheetScrollContent: {
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: Math.max(insets.bottom, 18),
+    },
+    sheetHeader: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    sheetEyebrow: {
+      fontSize: 12,
+      fontWeight: "800",
+      color: primary,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+      marginBottom: 4,
+    },
+    sheetTitle: {
+      fontSize: 22,
+      fontWeight: "800",
+      color: text,
+      lineHeight: 28,
+    },
+    sheetCloseBtn: {
+      width: 36,
+      height: 36,
       alignItems: "center",
       justifyContent: "center",
-      paddingHorizontal: 18,
+      borderRadius: 999,
+      backgroundColor: surfaceSoft,
+      marginTop: 2,
     },
-
-    menuActionText: {
-      fontSize: 18,
+    sheetIntro: {
+      marginTop: 10,
+      fontSize: 14,
+      lineHeight: 20,
+      color: muted,
       fontWeight: "500",
-      color: menuActionColor,
     },
 
-    menuCancelText: {
+    breakdownList: {
+      marginTop: 18,
+      gap: 12,
+    },
+    breakdownCard: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: 12,
+      padding: 14,
+      borderRadius: 18,
+      backgroundColor: surfaceSoft,
+      borderWidth: 1,
+      borderColor: border,
+    },
+    breakdownIconWrap: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: accentSoft,
+      borderWidth: 1,
+      borderColor: accentBorder,
+      marginTop: 1,
+    },
+    breakdownContent: {
+      flex: 1,
+      paddingRight: 8,
+    },
+    breakdownLabelRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+    },
+    breakdownLabel: {
+      fontSize: 15,
+      fontWeight: "700",
+      color: text,
+      lineHeight: 20,
+      flex: 1,
+    },
+    inlineInfoBtn: {
+      width: 24,
+      height: 24,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 999,
+    },
+    breakdownHint: {
+      marginTop: 4,
+      fontSize: 13,
+      lineHeight: 18,
+      color: muted,
+      fontWeight: "500",
+    },
+    breakdownValue: {
+      fontSize: 15,
+      fontWeight: "800",
+      color: text,
+      lineHeight: 20,
+      marginTop: 1,
+    },
+
+    totalCard: {
+      marginTop: 16,
+      borderRadius: 20,
+      padding: 16,
+      backgroundColor: accentSoft,
+      borderWidth: 1,
+      borderColor: accentBorder,
+    },
+    totalTopRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    totalLabel: {
+      fontSize: 16,
+      fontWeight: "800",
+      color: text,
+    },
+    totalValue: {
       fontSize: 18,
-      fontWeight: "600",
-      color: menuCancelColor,
+      fontWeight: "900",
+      color: primary,
+    },
+    totalSubtext: {
+      marginTop: 6,
+      fontSize: 13,
+      lineHeight: 18,
+      color: muted,
+      fontWeight: "500",
     },
 
-    menuDivider: {
-      height: 1,
-      backgroundColor: glassMenuDivider,
+    sheetNote: {
+      marginTop: 18,
+      fontSize: 13,
+      lineHeight: 20,
+      color: muted,
+      fontWeight: "500",
     },
+
+    buyerOverlaySheet: {
+      position: "absolute",
+      top: Math.max(insets.top, 8),
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: sheetBg,
+      borderTopLeftRadius: 26,
+      borderTopRightRadius: 26,
+      overflow: "hidden",
+    },
+
+    buyerHandleWrap: {
+      alignItems: "center",
+      paddingTop: 10,
+      paddingBottom: 4,
+    },
+
+    protectionSheetHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingBottom: 6,
+    },
+    protectionBackBtn: {
+      width: 36,
+      height: 36,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 999,
+      backgroundColor: surfaceSoft,
+    },
+    protectionSheetScrollContent: {
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: Math.max(insets.bottom, 24) + 16,
+      flexGrow: 1,
+    },
+    protectionHero: {
+      alignItems: "center",
+      marginTop: 8,
+      marginBottom: 24,
+    },
+    protectionHeroIcon: {
+      width: 96,
+      height: 96,
+      borderRadius: 999,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: accentSoft,
+      borderWidth: 1,
+      borderColor: accentBorder,
+      marginBottom: 18,
+    },
+    protectionTitle: {
+      fontSize: 24,
+      fontWeight: "800",
+      color: text,
+      textAlign: "center",
+      lineHeight: 30,
+    },
+    protectionLink: {
+      marginTop: 8,
+      fontSize: 15,
+      lineHeight: 22,
+      color: primary,
+      textAlign: "center",
+      textDecorationLine: "underline",
+    },
+
+    protectionSection: {
+      marginBottom: 28,
+    },
+    protectionSectionHeader: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: 12,
+      marginBottom: 8,
+    },
+    protectionSectionTitle: {
+      flex: 1,
+      fontSize: 18,
+      fontWeight: "800",
+      color: text,
+      lineHeight: 24,
+      marginTop: -1,
+    },
+    protectionText: {
+      fontSize: 16,
+      lineHeight: 25,
+      color: muted,
+      fontWeight: "500",
+      marginLeft: 36,
+      marginBottom: 2,
+    },
+    protectionBullet: {
+      fontSize: 16,
+      lineHeight: 25,
+      color: muted,
+      fontWeight: "500",
+      marginLeft: 54,
+    },
+    protectionParagraph: {
+      marginTop: 16,
+      fontSize: 16,
+      lineHeight: 27,
+      color: muted,
+      fontWeight: "500",
+      marginLeft: 36,
+    },
+
+    protectionPrimaryBtn: {
+      marginTop: 8,
+      height: 52,
+      borderRadius: 14,
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    protectionPrimaryBtnText: {
+      color: onPrimary,
+      fontSize: 18,
+      fontWeight: "800",
+    },
+
+    __iconColor: iconColor,
+    __dangerColor: danger,
+    __primaryColor: primary,
   });
 }
