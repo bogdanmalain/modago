@@ -1,7 +1,8 @@
 // src/screens/ItemDetailsScreen.js
 // COMPONENTĂ: ItemDetailsScreen
 // MODIFICARE:
-// - textul explicativ de jos din primul sheet a fost rescris într-un stil apropiat de referința din imagine
+// - FIX: am scos bara/header-ul sticky care apărea la scroll sus, atât pe light cât și pe dark
+// - back button-ul rămâne flotant peste conținut, dar fără fundalul lat alb din spate
 // - restul layout-ului și logicii rămân neschimbate
 
 import React, {
@@ -49,7 +50,6 @@ const BADGE_MIN = 22;
 const GLASS_H = 52;
 const RELATED_CARD_W = 156;
 const RELATED_IMG_H = 176;
-const HEADER_FADE_DISTANCE = 90;
 const STORAGE_BUCKET = "items";
 
 function pickTok(tokens, key, fallback) {
@@ -235,7 +235,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
   const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
   const HERO_H = useMemo(() => Math.round(SCREEN_H * 0.6), [SCREEN_H]);
 
-  const scrollY = useRef(new Animated.Value(0)).current;
   const buyerSheetY = useRef(new Animated.Value(SCREEN_H)).current;
 
   const S = useMemo(
@@ -265,7 +264,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
 
   useEffect(() => {
     setActiveIndex(0);
-    scrollY.setValue(0);
     dotsAnim.setValue(0);
     setInfoSheetVisible(false);
     setBuyerSheetMounted(false);
@@ -274,7 +272,7 @@ export default function ItemDetailsScreen({ navigation, route }) {
     try {
       heroScrollRef.current?.scrollTo?.({ x: 0, y: 0, animated: false });
     } catch {}
-  }, [route?.params?.item?.id, scrollY, dotsAnim, buyerSheetY, SCREEN_H]);
+  }, [route?.params?.item?.id, dotsAnim, buyerSheetY, SCREEN_H]);
 
   useEffect(() => {
     Animated.timing(dotsAnim, {
@@ -708,24 +706,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
     [S, openItem],
   );
 
-  const stickyBgOpacity = scrollY.interpolate({
-    inputRange: [0, 24, HEADER_FADE_DISTANCE],
-    outputRange: [0, 0.2, 1],
-    extrapolate: "clamp",
-  });
-
-  const stickyBorderOpacity = scrollY.interpolate({
-    inputRange: [0, 35, HEADER_FADE_DISTANCE],
-    outputRange: [0, 0.15, 1],
-    extrapolate: "clamp",
-  });
-
-  const stickyShadowOpacity = scrollY.interpolate({
-    inputRange: [0, 30, HEADER_FADE_DISTANCE],
-    outputRange: [0, 0.08, 0.18],
-    extrapolate: "clamp",
-  });
-
   if (!item) {
     return (
       <View style={[S.safe, { paddingTop: Math.max(insets.top, 14) }]}>
@@ -762,21 +742,8 @@ export default function ItemDetailsScreen({ navigation, route }) {
 
   return (
     <View style={S.safe}>
-      <Animated.View
-        style={[S.stickyHeaderBg, { opacity: stickyBgOpacity }]}
-        pointerEvents="none"
-      />
-      <Animated.View
-        style={[S.stickyHeaderBorder, { opacity: stickyBorderOpacity }]}
-        pointerEvents="none"
-      />
-      <Animated.View
-        style={[S.stickyHeaderShadow, { opacity: stickyShadowOpacity }]}
-        pointerEvents="none"
-      />
-
       <View
-        style={[S.stickyHeaderRow, { top: headerTop }]}
+        style={[S.floatingHeaderRow, { top: headerTop }]}
         pointerEvents="box-none"
       >
         <HeaderBackButton
@@ -792,10 +759,6 @@ export default function ItemDetailsScreen({ navigation, route }) {
         style={S.verticalScroll}
         contentContainerStyle={S.verticalContent}
         showsVerticalScrollIndicator={false}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false },
-        )}
         scrollEventThrottle={16}
       >
         <View style={S.mediaWrap}>
@@ -1304,9 +1267,6 @@ function makeStyles(tokens, HERO_H, insets, SCREEN_H) {
   const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
   const mediaBg = pickTok(tokens, "mediaBg", "rgba(0,0,0,0.35)");
   const shadowColor = pickTok(tokens, "shadowColor", "#000");
-
-  const stickyBg = isDark ? "rgba(11,18,32,0.88)" : "rgba(255,255,255,0.88)";
-  const stickyBorder = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
   const iconColor = pickTok(tokens, "text", text);
 
   const sheetBg = pickTok(tokens, "card", isDark ? "#0F172A" : "#FFFFFF");
@@ -1325,38 +1285,7 @@ function makeStyles(tokens, HERO_H, insets, SCREEN_H) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: bg },
 
-    stickyHeaderBg: {
-      position: "absolute",
-      top: 0,
-      left: 0,
-      right: 0,
-      height: insets.top + GLASS_H + 18,
-      backgroundColor: stickyBg,
-      zIndex: 140,
-    },
-    stickyHeaderBorder: {
-      position: "absolute",
-      top: insets.top + GLASS_H + 17,
-      left: 0,
-      right: 0,
-      height: 1,
-      backgroundColor: stickyBorder,
-      zIndex: 141,
-    },
-    stickyHeaderShadow: {
-      position: "absolute",
-      top: 0,
-      left: 0,
-      right: 0,
-      height: insets.top + GLASS_H + 18,
-      shadowColor,
-      shadowRadius: 14,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 8,
-      zIndex: 139,
-    },
-
-    stickyHeaderRow: {
+    floatingHeaderRow: {
       position: "absolute",
       left: 14,
       right: 14,
