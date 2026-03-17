@@ -1,10 +1,14 @@
-// src/navigation/routes.js
-// CE ESTE:
-// - lista centrală de rute a aplicației
-//
-// MODIFICĂRI:
-// - păstrate rutele pentru EditProfile, Balance, Orders, VacationMode
-// - eliminată ruta PendingBalanceInfo; info pentru sold rămâne local în BalanceScreen
+/**
+ * ================================
+ * src/navigation/routes.js
+ * ================================
+ * CE ESTE:
+ * -> lista centrală de rute a aplicației
+ *
+ * MODIFICĂRI:
+ * -> adăugată ruta Settings
+ * -> păstrate rutele pentru EditProfile, Balance, Orders, VacationMode
+ */
 
 export const ROUTES = {
   Home: "Home",
@@ -31,6 +35,7 @@ export const ROUTES = {
 
   ImageViewer: "ImageViewer",
 
+  Settings: "Settings",
   ThemeSettings: "ThemeSettings",
 
   Balance: "Balance",

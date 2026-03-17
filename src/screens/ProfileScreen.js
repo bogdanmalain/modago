@@ -6,10 +6,11 @@
  * -> ecranul de profil pentru varianta mobilă ModaGo
  *
  * MODIFICĂRI:
- * -> logo-ul ModaGo este afișat lângă text, în dreapta
- * -> folosește logo light/dark din assets/logo
+ * -> scos "Tema aplicație" din lista principală
+ * -> adăugat la loc butonul "Setări"
+ * -> "Setări" duce către SettingsScreen
+ * -> păstrat logo-ul, layout-ul actual și restul logicii existente
  * -> Sold afișează MDL
- * -> păstrat layout-ul și logica existente
  */
 
 import React, {
@@ -43,14 +44,6 @@ import logoDark from "../../assets/logo/modago-logo.png";
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
   return v !== undefined && v !== null ? v : fallback;
-}
-
-function getThemeLabel(settings) {
-  const mode = settings?.mode === "manual" ? "manual" : "auto";
-  const manualScheme = settings?.manualScheme === "dark" ? "dark" : "light";
-
-  if (mode === "auto") return "Auto";
-  return manualScheme === "dark" ? "Dark" : "Light";
 }
 
 function getInitials(displayName, email) {
@@ -219,10 +212,6 @@ export default function ProfileScreen({ navigation }) {
     navigation.navigate(ROUTES.Favorites);
   }, [sessionReady, user, navigation]);
 
-  const goThemeSettings = useCallback(() => {
-    navigation.navigate(ROUTES.ThemeSettings);
-  }, [navigation]);
-
   const goEditProfile = useCallback(() => {
     if (!sessionReady || !user) return;
     navigation.navigate(ROUTES.EditProfile);
@@ -240,6 +229,10 @@ export default function ProfileScreen({ navigation }) {
     navigation.navigate(ROUTES.VacationMode);
   }, [navigation]);
 
+  const goSettings = useCallback(() => {
+    navigation.navigate(ROUTES.Settings);
+  }, [navigation]);
+
   const onLogout = useCallback(async () => {
     try {
       await supabase.auth.signOut();
@@ -249,7 +242,6 @@ export default function ProfileScreen({ navigation }) {
   }, []);
 
   const formatCount = (val) => (loadingCounts ? "—" : String(val ?? "—"));
-  const themeLabel = getThemeLabel(settings);
 
   const logoSource =
     settings?.mode === "manual"
@@ -273,9 +265,12 @@ export default function ProfileScreen({ navigation }) {
       showsVerticalScrollIndicator={false}
     >
       <View style={S.phoneShell}>
-        <View style={S.brandRow}>
-          <Text style={S.brandTitle}>ModaGo</Text>
-          <Image source={logoSource} style={S.brandLogo} resizeMode="contain" />
+        <View style={S.brandLogoOnlyWrap}>
+          <Image
+            source={logoSource}
+            style={S.brandLogoLarge}
+            resizeMode="contain"
+          />
         </View>
 
         <View style={S.headerActions}>
@@ -338,15 +333,6 @@ export default function ProfileScreen({ navigation }) {
 
         <View style={S.menuCard}>
           <MenuRow
-            icon="person-outline"
-            label="Editează profilul"
-            onPress={goEditProfile}
-            showDivider
-            S={S}
-            iconColor={S.__colors.icon}
-          />
-
-          <MenuRow
             icon="briefcase-outline"
             label="Anunțurile mele"
             onPress={goMyItems}
@@ -393,19 +379,9 @@ export default function ProfileScreen({ navigation }) {
           />
 
           <MenuRow
-            icon="moon-outline"
-            label="Tema aplicație"
-            value={themeLabel}
-            onPress={goThemeSettings}
-            showDivider
-            S={S}
-            iconColor={S.__colors.icon}
-          />
-
-          <MenuRow
             icon="settings-outline"
             label="Setări"
-            onPress={goThemeSettings}
+            onPress={goSettings}
             S={S}
             iconColor={S.__colors.icon}
           />
@@ -495,23 +471,16 @@ function makeStyles(tokens) {
       elevation: 6,
     },
 
-    brandRow: {
-      flexDirection: "row",
+    brandLogoOnlyWrap: {
       alignItems: "center",
       justifyContent: "center",
-      gap: 10,
       marginTop: 2,
+      marginBottom: 6,
     },
 
-    brandTitle: {
-      fontSize: 22,
-      fontWeight: "900",
-      color: text,
-    },
-
-    brandLogo: {
-      width: 30,
-      height: 30,
+    brandLogoLarge: {
+      width: 180,
+      height: 56,
     },
 
     headerActions: {
@@ -534,7 +503,7 @@ function makeStyles(tokens) {
 
     profileHero: {
       alignItems: "center",
-      paddingTop: 26,
+      paddingTop: 18,
       paddingBottom: 14,
     },
 

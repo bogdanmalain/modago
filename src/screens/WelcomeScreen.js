@@ -1,10 +1,14 @@
 /**
  * ==========================================
- * WELCOMESCREEN – AUTO SPACERS (EGAL SUS/JOS)
+ * src/screens/WelcomeScreen.js
  * ==========================================
- * ✅ Fără marginTop “din ochi” (nu depinde de iPhone)
- * ✅ Distanță egală: header->conținut == conținut->jos (dinamic)
- * ✅ Păstrăm grid / logo / culori / ordine / cover exact ca acum
+ * CE ESTE:
+ * -> ecranul Welcome pentru varianta mobilă ModaGo
+ *
+ * MODIFICĂRI:
+ * -> FIX: logo-ul din header folosește corect noile asset-uri crop-uite
+ * -> scos crop-ul artificial / scale / translateY care îl stricau
+ * -> păstrat grid-ul, layout-ul, culorile și logica existente
  *
  * Assets:
  * - ../../assets/welcome/1.png ... 6.png
@@ -65,7 +69,10 @@ export default function WelcomeScreen({ navigation }) {
     const url = "https://modago.app";
     try {
       const ok = await Linking.canOpenURL(url);
-      if (!ok) return Alert.alert("Link", "Nu pot deschide link-ul.");
+      if (!ok) {
+        Alert.alert("Link", "Nu pot deschide link-ul.");
+        return;
+      }
       await Linking.openURL(url);
     } catch (e) {
       console.log("Linking error:", e);
@@ -80,7 +87,6 @@ export default function WelcomeScreen({ navigation }) {
     );
   }, []);
 
-  // --- sizing grid 3x2 ---
   const { width } = Dimensions.get("window");
 
   const H_PADDING = 10;
@@ -94,10 +100,7 @@ export default function WelcomeScreen({ navigation }) {
   const text = tokens?.text ?? "#ffffff";
   const subtext = tokens?.subtext ?? "#9aa4b2";
   const border = tokens?.border ?? "rgba(255,255,255,0.10)";
-
-  // ✅ brand din tokens (oficial)
   const BRAND = tokens?.primary ?? "#3fa9b5";
-
   const isDark = tokens?.scheme === "dark";
 
   const styles = useMemo(
@@ -118,7 +121,6 @@ export default function WelcomeScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.page}>
-        {/* HEADER */}
         <View style={styles.headerRow}>
           <TouchableOpacity
             activeOpacity={0.85}
@@ -130,16 +132,14 @@ export default function WelcomeScreen({ navigation }) {
 
           <View style={styles.headerCenter}>
             <View style={styles.logoWrap}>
-              <View style={styles.logoCrop} pointerEvents="none">
-                <Image
-                  source={
-                    isDark
-                      ? require("../../assets/logo/modago-logo.png")
-                      : require("../../assets/logo/modago-logo-light.png")
-                  }
-                  style={styles.logoImg}
-                />
-              </View>
+              <Image
+                source={
+                  isDark
+                    ? require("../../assets/logo/modago-logo.png")
+                    : require("../../assets/logo/modago-logo-light.png")
+                }
+                style={styles.logoImg}
+              />
             </View>
           </View>
 
@@ -152,12 +152,9 @@ export default function WelcomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* ✅ SPACER SUS (egalizare automată) */}
         <View style={styles.spacerTop} />
 
-        {/* CONTENT (grid + text + buttons) */}
         <View style={styles.content}>
-          {/* GRID */}
           <View style={styles.grid}>
             {images.map((img, i) => (
               <View key={i} style={styles.tile}>
@@ -166,13 +163,11 @@ export default function WelcomeScreen({ navigation }) {
             ))}
           </View>
 
-          {/* TEXT */}
           <Text style={styles.title}>Din dulap direct{"\n"}în aplicație.</Text>
           <Text style={styles.subtitle}>
             Postezi în 30 secunde. Vinzi simplu. Cumperi safe.
           </Text>
 
-          {/* BUTTONS (AppButton) */}
           <AppButton
             title="Înregistrează-te pe ModaGo"
             onPress={() => go("Register")}
@@ -199,14 +194,13 @@ export default function WelcomeScreen({ navigation }) {
           </Text>
         </View>
 
-        {/* ✅ SPACER JOS (egalizare automată) */}
         <View style={styles.spacerBottom} />
       </View>
     </SafeAreaView>
   );
 }
 
-function makeStyles({ bg, text, subtext, border, insets, CARD, GAP, BRAND }) {
+function makeStyles({ bg, text, subtext, border, insets, CARD, GAP }) {
   const R = 18;
 
   return StyleSheet.create({
@@ -219,56 +213,62 @@ function makeStyles({ bg, text, subtext, border, insets, CARD, GAP, BRAND }) {
       paddingBottom: Math.max(insets.bottom, 10),
     },
 
-    /* HEADER */
     headerRow: {
       height: 56,
       flexDirection: "row",
       alignItems: "center",
       marginTop: Platform.OS === "android" ? 6 : 0,
     },
-    headerSide: { width: 96, justifyContent: "center" },
-    headerSideRight: { alignItems: "flex-end" },
-    headerText: { color: subtext, fontWeight: "800", fontSize: 16 },
-    headerCenter: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-    logoWrap: {
-      paddingHorizontal: 6,
-      paddingVertical: 4,
-      borderRadius: 16,
+    headerSide: {
+      width: 96,
+      justifyContent: "center",
     },
-    logoCrop: {
-      width: 210,
-      height: 44,
-      borderRadius: 14,
-      overflow: "hidden",
+
+    headerSideRight: {
+      alignItems: "flex-end",
+    },
+
+    headerText: {
+      color: subtext,
+      fontWeight: "800",
+      fontSize: 16,
+    },
+
+    headerCenter: {
+      flex: 1,
       alignItems: "center",
       justifyContent: "center",
     },
-    logoImg: {
-      width: "100%",
-      height: "100%",
-      resizeMode: "cover",
-      transform: [{ scale: 1.35 }, { translateY: 8 }],
+
+    logoWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 2,
     },
 
-    /* ✅ AUTO SPACERS */
+    logoImg: {
+      width: 210,
+      height: 44,
+      resizeMode: "contain",
+    },
+
     spacerTop: {
       flexGrow: 1,
       minHeight: 8,
       maxHeight: 28,
     },
+
     spacerBottom: {
       flexGrow: 1,
       minHeight: 8,
       maxHeight: 28,
     },
 
-    /* CONTENT WRAP */
     content: {
       flexShrink: 0,
     },
 
-    /* GRID */
     grid: {
       flexDirection: "row",
       flexWrap: "wrap",
@@ -292,7 +292,6 @@ function makeStyles({ bg, text, subtext, border, insets, CARD, GAP, BRAND }) {
       resizeMode: "cover",
     },
 
-    /* TEXT */
     title: {
       marginTop: 6,
       fontSize: 34,
@@ -300,6 +299,7 @@ function makeStyles({ bg, text, subtext, border, insets, CARD, GAP, BRAND }) {
       color: text,
       textAlign: "center",
     },
+
     subtitle: {
       marginTop: 8,
       color: subtext,
@@ -308,18 +308,16 @@ function makeStyles({ bg, text, subtext, border, insets, CARD, GAP, BRAND }) {
       fontSize: 15,
     },
 
-    /* BUTTONS (păstrăm exact width/centrare ca înainte) */
     primaryBtn: {
       marginTop: 16,
       alignSelf: "center",
       width: "88%",
-      // culoarea vine din AppButton via tokens.primary
     },
+
     secondaryBtn: {
       marginTop: 10,
       alignSelf: "center",
       width: "88%",
-      // border-ul vine din AppButton via tokens.primary
     },
 
     footer: {
@@ -328,6 +326,7 @@ function makeStyles({ bg, text, subtext, border, insets, CARD, GAP, BRAND }) {
       color: subtext,
       fontWeight: "700",
     },
+
     link: {
       color: text,
       fontWeight: "900",

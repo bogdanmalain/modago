@@ -1,10 +1,16 @@
-// src/screens/ThemeSettingsScreen.js
-// COMPONENTĂ: ThemeSettingsScreen
-// MODIFICARE:
-// - back merge explicit în Profile, nu pe istoricul stack-ului
-// - păstrează HeaderBackButton reutilizabil
-// - păstrează layout-ul actual al ecranului
-// - restul logicii rămâne neschimbată
+/**
+ * ================================
+ * src/screens/ThemeSettingsScreen.js
+ * ================================
+ * COMPONENTĂ: ThemeSettingsScreen
+ *
+ * MODIFICĂRI:
+ * -> sus afișează corect tema selectată: Auto / Light / Dark
+ * -> separat afișează și tema activă acum: dark / light
+ * -> textul/albul este apropiat vizual de ProfileScreen
+ * -> back-ul folosește goBack() dacă se poate, altfel fallback la Settings
+ * -> restul logicii rămâne neschimbată
+ */
 
 import React, { useContext, useMemo, useCallback } from "react";
 import {
@@ -27,7 +33,14 @@ function pickTok(tokens, key, fallback) {
   return v !== undefined && v !== null ? v : fallback;
 }
 
-// Ajustează dacă tabbar-ul tău e mai înalt/mai jos
+function getSelectedThemeLabel(settings) {
+  const mode = settings?.mode === "manual" ? "manual" : "auto";
+  const manualScheme = settings?.manualScheme === "dark" ? "dark" : "light";
+
+  if (mode === "auto") return "Auto";
+  return manualScheme === "dark" ? "Dark" : "Light";
+}
+
 const FLOATING_TABBAR_SAFE_SPACE = 110;
 
 export default function ThemeSettingsScreen() {
@@ -43,10 +56,16 @@ export default function ThemeSettingsScreen() {
   const isManualDark =
     settings?.mode === "manual" && settings?.manualScheme === "dark";
 
+  const selectedThemeLabel = getSelectedThemeLabel(settings);
+
   const S = useMemo(() => makeStyles(tokens, insets), [tokens, insets]);
 
   const onBack = useCallback(() => {
-    navigation.navigate("TabsRoot", { screen: ROUTES.Profile });
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate(ROUTES.Settings);
   }, [navigation]);
 
   return (
@@ -58,9 +77,16 @@ export default function ThemeSettingsScreen() {
         contentContainerStyle={S.content}
         showsVerticalScrollIndicator={false}
       >
-        <View style={S.infoRow}>
-          <Text style={S.infoLabel}>Tema curentă:</Text>
-          <Text style={S.infoValue}>{scheme}</Text>
+        <View style={S.infoBlock}>
+          <View style={S.infoRow}>
+            <Text style={S.infoLabel}>Tema selectată:</Text>
+            <Text style={S.infoValue}>{selectedThemeLabel}</Text>
+          </View>
+
+          <View style={S.infoRowSecondary}>
+            <Text style={S.infoLabelSecondary}>Tema activă acum:</Text>
+            <Text style={S.infoValueSecondary}>{scheme}</Text>
+          </View>
         </View>
 
         <ThemeRow
@@ -89,7 +115,7 @@ export default function ThemeSettingsScreen() {
 
         <Text style={S.footerNote}>
           Dacă ești pe „Auto”, aplicația urmărește tema sistemului.{"\n"}
-          Dacă alegi Light/Dark, rămâne fix.
+          „Tema activă acum” poate fi light sau dark, în funcție de telefon.
         </Text>
       </ScrollView>
     </View>
@@ -103,7 +129,7 @@ function ThemeRow({ title, subtitle, selected, onPress, styles }) {
       onPress={onPress}
       style={[styles.rowCard, selected ? styles.rowSelected : null]}
     >
-      <View style={{ flex: 1, paddingRight: 12 }}>
+      <View style={styles.rowTextWrap}>
         <Text style={styles.rowTitle}>{title}</Text>
         <Text style={styles.rowSub}>{subtitle}</Text>
       </View>
@@ -149,22 +175,44 @@ function makeStyles(tokens, insets) {
       paddingHorizontal: 16,
     },
 
-    infoRow: {
-      flexDirection: "row",
-      alignItems: "baseline",
-      gap: 8,
+    infoBlock: {
       marginBottom: 12,
       paddingHorizontal: 2,
     },
 
+    infoRow: {
+      flexDirection: "row",
+      alignItems: "baseline",
+      gap: 8,
+    },
+
     infoLabel: {
       fontSize: 16,
-      fontWeight: "800",
+      fontWeight: "900",
       color: muted,
     },
 
     infoValue: {
       fontSize: 18,
+      fontWeight: "900",
+      color: text,
+    },
+
+    infoRowSecondary: {
+      flexDirection: "row",
+      alignItems: "baseline",
+      gap: 8,
+      marginTop: 6,
+    },
+
+    infoLabelSecondary: {
+      fontSize: 14,
+      fontWeight: "800",
+      color: muted,
+    },
+
+    infoValueSecondary: {
+      fontSize: 15,
       fontWeight: "900",
       color: text,
       textTransform: "lowercase",
@@ -189,6 +237,11 @@ function makeStyles(tokens, insets) {
     rowSelected: {
       borderColor: primary,
       borderWidth: 2,
+    },
+
+    rowTextWrap: {
+      flex: 1,
+      paddingRight: 12,
     },
 
     rowTitle: {
@@ -218,7 +271,10 @@ function makeStyles(tokens, insets) {
       backgroundColor: card,
     },
 
-    pillSelected: { borderColor: primary },
+    pillSelected: {
+      borderColor: primary,
+    },
+
     pillIdle: {},
 
     pillText: {
@@ -226,16 +282,22 @@ function makeStyles(tokens, insets) {
       fontSize: 14,
     },
 
-    pillTextSelected: { color: primary },
-    pillTextIdle: { color: muted },
+    pillTextSelected: {
+      color: primary,
+    },
+
+    pillTextIdle: {
+      color: muted,
+    },
 
     footerNote: {
       marginTop: 8,
       textAlign: "center",
       fontSize: 14,
-      fontWeight: "700",
+      fontWeight: "800",
       color: muted,
       paddingHorizontal: 10,
+      lineHeight: 20,
     },
   });
 }

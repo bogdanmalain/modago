@@ -1,9 +1,14 @@
-// src/navigation/AppNavigator.js
-// COMPONENTĂ: AppNavigator
-// MODIFICARE:
-// - păstrate EditProfileScreen, BalanceScreen, OrdersScreen, VacationModeScreen în stack
-// - eliminat PendingBalanceInfoScreen; info pentru sold rămâne local în BalanceScreen
-// - restul structurii de navigare rămâne neschimbat
+/**
+ * ================================
+ * src/navigation/AppNavigator.js
+ * ================================
+ * COMPONENTĂ: AppNavigator
+ *
+ * MODIFICĂRI:
+ * -> adăugat SettingsScreen în stack-ul mobil și web
+ * -> păstrate EditProfileScreen, BalanceScreen, OrdersScreen, VacationModeScreen
+ * -> restul structurii rămâne neschimbat
+ */
 
 import React, {
   useEffect,
@@ -53,6 +58,7 @@ import ResetPasswordScreen from "../screens/ResetPasswordScreen";
 import MyItemsScreen from "../screens/MyItemsScreen";
 import FavoritesScreen from "../screens/FavoritesScreen";
 
+import SettingsScreen from "../screens/SettingsScreen";
 import ThemeSettingsScreen from "../screens/ThemeSettingsScreen";
 import BalanceScreen from "../screens/BalanceScreen";
 import OrdersScreen from "../screens/OrdersScreen";
@@ -71,9 +77,6 @@ function getActiveRouteName(state) {
   return route.name;
 }
 
-/**
- * MOBILE: doar tab-urile reale
- */
 function MobileTabs() {
   const { tokens } = useContext(ThemeContext);
   const bg = tokens?.bg ?? "#0B1220";
@@ -103,12 +106,6 @@ function MobileTabs() {
   );
 }
 
-/**
- * MOBILE ROOT:
- * - TabsRoot jos
- * - ecranele secundare sus, ca stack
- * - ImageViewer rămâne modal
- */
 function MobileRootStack() {
   return (
     <Stack.Navigator
@@ -122,73 +119,61 @@ function MobileRootStack() {
       <Stack.Screen
         name={ROUTES.ItemDetails}
         component={ItemDetailsScreen}
-        options={{
-          animation: "slide_from_right",
-        }}
+        options={{ animation: "slide_from_right" }}
       />
 
       <Stack.Screen
         name={ROUTES.EditItem}
         component={EditItemScreen}
-        options={{
-          animation: "slide_from_right",
-        }}
+        options={{ animation: "slide_from_right" }}
       />
 
       <Stack.Screen
         name={ROUTES.EditProfile}
         component={EditProfileScreen}
-        options={{
-          animation: "slide_from_right",
-        }}
+        options={{ animation: "slide_from_right" }}
       />
 
       <Stack.Screen
         name={ROUTES.MyItems}
         component={MyItemsScreen}
-        options={{
-          animation: "slide_from_right",
-        }}
+        options={{ animation: "slide_from_right" }}
       />
 
       <Stack.Screen
         name={ROUTES.Favorites}
         component={FavoritesScreen}
-        options={{
-          animation: "slide_from_right",
-        }}
+        options={{ animation: "slide_from_right" }}
+      />
+
+      <Stack.Screen
+        name={ROUTES.Settings}
+        component={SettingsScreen}
+        options={{ animation: "slide_from_right" }}
       />
 
       <Stack.Screen
         name={ROUTES.ThemeSettings}
         component={ThemeSettingsScreen}
-        options={{
-          animation: "slide_from_right",
-        }}
+        options={{ animation: "slide_from_right" }}
       />
 
       <Stack.Screen
         name={ROUTES.Balance}
         component={BalanceScreen}
-        options={{
-          animation: "slide_from_right",
-        }}
+        options={{ animation: "slide_from_right" }}
       />
 
       <Stack.Screen
         name={ROUTES.Orders}
         component={OrdersScreen}
-        options={{
-          animation: "slide_from_right",
-        }}
+        options={{ animation: "slide_from_right" }}
       />
 
       <Stack.Screen
         name={ROUTES.VacationMode}
         component={VacationModeScreen}
-        options={{
-          animation: "slide_from_right",
-        }}
+        options={{ animation: "slide_from_right" }}
       />
 
       <Stack.Screen
@@ -222,6 +207,7 @@ function WebStack() {
       <Stack.Screen name={ROUTES.MyItems} component={MyItemsScreen} />
       <Stack.Screen name={ROUTES.Favorites} component={FavoritesScreen} />
       <Stack.Screen name={ROUTES.Profile} component={ProfileScreen} />
+      <Stack.Screen name={ROUTES.Settings} component={SettingsScreen} />
       <Stack.Screen
         name={ROUTES.ThemeSettings}
         component={ThemeSettingsScreen}
