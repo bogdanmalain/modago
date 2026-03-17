@@ -1,7 +1,8 @@
 // src/navigation/AppNavigator.js
 // COMPONENTĂ: AppNavigator
 // MODIFICARE:
-// - adăugat EditProfileScreen în stack-ul mobil și web
+// - păstrate EditProfileScreen, BalanceScreen, OrdersScreen, VacationModeScreen în stack
+// - eliminat PendingBalanceInfoScreen; info pentru sold rămâne local în BalanceScreen
 // - restul structurii de navigare rămâne neschimbat
 
 import React, {
@@ -53,6 +54,9 @@ import MyItemsScreen from "../screens/MyItemsScreen";
 import FavoritesScreen from "../screens/FavoritesScreen";
 
 import ThemeSettingsScreen from "../screens/ThemeSettingsScreen";
+import BalanceScreen from "../screens/BalanceScreen";
+import OrdersScreen from "../screens/OrdersScreen";
+import VacationModeScreen from "../screens/VacationModeScreen";
 
 // Theme provider
 import { ThemeProvider, ThemeContext } from "../theme/ThemeProvider";
@@ -164,6 +168,30 @@ function MobileRootStack() {
       />
 
       <Stack.Screen
+        name={ROUTES.Balance}
+        component={BalanceScreen}
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+
+      <Stack.Screen
+        name={ROUTES.Orders}
+        component={OrdersScreen}
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+
+      <Stack.Screen
+        name={ROUTES.VacationMode}
+        component={VacationModeScreen}
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+
+      <Stack.Screen
         name={ROUTES.ImageViewer}
         component={ImageViewerScreen}
         options={{
@@ -199,6 +227,9 @@ function WebStack() {
         component={ThemeSettingsScreen}
         options={{ headerShown: false }}
       />
+      <Stack.Screen name={ROUTES.Balance} component={BalanceScreen} />
+      <Stack.Screen name={ROUTES.Orders} component={OrdersScreen} />
+      <Stack.Screen name={ROUTES.VacationMode} component={VacationModeScreen} />
       <Stack.Screen name={ROUTES.ImageViewer} component={ImageViewerScreen} />
     </Stack.Navigator>
   );

@@ -4,6 +4,7 @@
 // - dots-urile de pe carduri sunt acum centrate, albe și în stil apropiat de ItemDetails
 // - FIX: favoritele sunt normalizate pe chei string, ca să se încarce corect indiferent cum vine map-ul
 // - FIX: după toggle favorite facem refresh punctual pentru itemul respectiv, ca să nu rămână count/map greșit
+// - FIX: dacă utilizatorul are vacation_mode_enabled activ, propriile lui anunțuri sunt ascunse din Home
 // - păstrat restul logicii existente (refresh silențios, keepScroll, create/update/delete local)
 
 import React, {
@@ -114,6 +115,14 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
   const GAP = isDark ? 16 : 12;
   const H_PADDING = 14;
   const numColumns = 2;
+
+  const currentUserId = session?.user?.id
+    ? String(session.user.id)
+    : null;
+
+  const vacationModeEnabled = Boolean(
+    session?.user?.user_metadata?.vacation_mode_enabled,
+  );
 
   useEffect(() => {
     let sub;
@@ -401,7 +410,13 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
       .trim()
       .toLowerCase();
 
-    let base = items;
+    let base = Array.isArray(items) ? items : [];
+
+    if (vacationModeEnabled && currentUserId) {
+      base = base.filter(
+        (it) => String(it?.user_id || "") !== currentUserId,
+      );
+    }
 
     if (activeCat && activeCat !== "Toate") {
       const c = activeCat.toLowerCase();
@@ -420,7 +435,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
       const c = String(it.category || "").toLowerCase();
       return t.includes(q) || d.includes(q) || c.includes(q);
     });
-  }, [items, localQuery, activeCat]);
+  }, [items, localQuery, activeCat, vacationModeEnabled, currentUserId]);
 
   const getImages = useCallback((item) => {
     const arr = item?.images || [];

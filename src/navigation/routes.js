@@ -3,7 +3,8 @@
 // - lista centrală de rute a aplicației
 //
 // MODIFICĂRI:
-// - adăugată ruta EditProfile pentru ecranul de editare profil
+// - păstrate rutele pentru EditProfile, Balance, Orders, VacationMode
+// - eliminată ruta PendingBalanceInfo; info pentru sold rămâne local în BalanceScreen
 
 export const ROUTES = {
   Home: "Home",
@@ -31,4 +32,8 @@ export const ROUTES = {
   ImageViewer: "ImageViewer",
 
   ThemeSettings: "ThemeSettings",
+
+  Balance: "Balance",
+  Orders: "Orders",
+  VacationMode: "VacationMode",
 };

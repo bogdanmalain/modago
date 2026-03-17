@@ -1,15 +1,15 @@
 /**
  * ================================
- * PROFILESCREEN
+ * src/screens/ProfileScreen.js
  * ================================
  * CE ESTE:
  * -> ecranul de profil pentru varianta mobilă ModaGo
  *
  * MODIFICĂRI:
- * -> FIX: "Tema aplicație" afișează acum corect Auto / Light / Dark
- * -> folosește settings.mode + settings.manualScheme din ThemeProvider
- * -> păstrat redesign-ul glass/light card și logica existentă
- * -> păstrată navigarea spre EditProfile, MyItems, Favorites, ThemeSettings
+ * -> logo-ul ModaGo este afișat lângă text, în dreapta
+ * -> folosește logo light/dark din assets/logo
+ * -> Sold afișează MDL
+ * -> păstrat layout-ul și logica existente
  */
 
 import React, {
@@ -25,6 +25,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,6 +36,9 @@ import { ROUTES } from "../navigation/routes";
 import { fetchMyItems } from "../services/itemsService";
 import { fetchFavoriteItems } from "../services/favoritesService";
 import { ThemeContext } from "../theme/ThemeProvider";
+
+import logoLight from "../../assets/logo/modago-logo-light.png";
+import logoDark from "../../assets/logo/modago-logo.png";
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -224,6 +228,18 @@ export default function ProfileScreen({ navigation }) {
     navigation.navigate(ROUTES.EditProfile);
   }, [sessionReady, user, navigation]);
 
+  const goBalance = useCallback(() => {
+    navigation.navigate(ROUTES.Balance);
+  }, [navigation]);
+
+  const goOrders = useCallback(() => {
+    navigation.navigate(ROUTES.Orders);
+  }, [navigation]);
+
+  const goVacationMode = useCallback(() => {
+    navigation.navigate(ROUTES.VacationMode);
+  }, [navigation]);
+
   const onLogout = useCallback(async () => {
     try {
       await supabase.auth.signOut();
@@ -234,6 +250,15 @@ export default function ProfileScreen({ navigation }) {
 
   const formatCount = (val) => (loadingCounts ? "—" : String(val ?? "—"));
   const themeLabel = getThemeLabel(settings);
+
+  const logoSource =
+    settings?.mode === "manual"
+      ? settings?.manualScheme === "dark"
+        ? logoDark
+        : logoLight
+      : tokens?.scheme === "dark"
+        ? logoDark
+        : logoLight;
 
   return (
     <ScrollView
@@ -248,7 +273,10 @@ export default function ProfileScreen({ navigation }) {
       showsVerticalScrollIndicator={false}
     >
       <View style={S.phoneShell}>
-        <Text style={S.brandTitle}>ModaGo</Text>
+        <View style={S.brandRow}>
+          <Text style={S.brandTitle}>ModaGo</Text>
+          <Image source={logoSource} style={S.brandLogo} resizeMode="contain" />
+        </View>
 
         <View style={S.headerActions}>
           <TouchableOpacity
@@ -331,6 +359,34 @@ export default function ProfileScreen({ navigation }) {
             icon="heart-outline"
             label="Favorite"
             onPress={goFavorites}
+            showDivider
+            S={S}
+            iconColor={S.__colors.icon}
+          />
+
+          <MenuRow
+            icon="wallet-outline"
+            label="Sold"
+            value="0,00 MDL"
+            onPress={goBalance}
+            showDivider
+            S={S}
+            iconColor={S.__colors.icon}
+          />
+
+          <MenuRow
+            icon="receipt-outline"
+            label="Comenzile mele"
+            onPress={goOrders}
+            showDivider
+            S={S}
+            iconColor={S.__colors.icon}
+          />
+
+          <MenuRow
+            icon="umbrella-outline"
+            label="Mod Vacanță"
+            onPress={goVacationMode}
             showDivider
             S={S}
             iconColor={S.__colors.icon}
@@ -439,12 +495,23 @@ function makeStyles(tokens) {
       elevation: 6,
     },
 
+    brandRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 10,
+      marginTop: 2,
+    },
+
     brandTitle: {
       fontSize: 22,
       fontWeight: "900",
-      textAlign: "center",
       color: text,
-      marginTop: 2,
+    },
+
+    brandLogo: {
+      width: 30,
+      height: 30,
     },
 
     headerActions: {
