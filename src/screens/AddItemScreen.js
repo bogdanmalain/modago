@@ -1,8 +1,12 @@
 // src/screens/AddItemScreen.js
 // Ce este: ecranul de publicare produs pentru ModaGo.
-// Ce s-a modificat: am scos textul "Path: ..."; am făcut rezolvarea atributelor
-// mai robustă pentru categoria selectată, astfel încât câmpurile dinamice
-// să apară corect pentru Femei/Bărbați și Telefoane mobile.
+// Ce s-a modificat:
+// - am mutat logica imaginilor de categorie într-un fișier separat:
+//   src/constants/categoryVisuals.js
+// - selectorul de categorie afișează imagini pentru path-urile care au asset dedicat
+// - pentru restul categoriilor rămâne fallback pe emoji
+// - structura este pregătită pentru a adăuga ușor imagini și la subcategorii
+// - nu am stricat flow-ul actual și nu am refactorizat inutil restul ecranului
 
 import React, {
   useCallback,
@@ -50,6 +54,7 @@ import {
   getCategoryAttributes,
   getOptionLabel,
 } from "../constants/categoryAttributes";
+import { getCategoryImageByPath } from "../constants/categoryVisuals";
 
 const STORAGE_BUCKET = "items";
 const MAX_IMAGES = 6;
@@ -185,6 +190,44 @@ function getCategoryEmoji(label, pathLabels = [], nextPath = []) {
   if (displayLabel.includes("cas")) return "🏠";
 
   return "✨";
+}
+
+function CategoryLeadingVisual({
+  label,
+  pathLabels = [],
+  nextPath = [],
+  stylesObj,
+}) {
+  const imageSource = getCategoryImageByPath(nextPath);
+  const pathKey = Array.isArray(nextPath) ? nextPath.join(">") : "";
+
+  const isWomenClothing = pathKey === "women>women-clothing";
+
+  if (imageSource) {
+    return (
+      <View
+        style={[
+          stylesObj.optionImageWrap,
+          isWomenClothing && stylesObj.optionImageWrapLarge,
+        ]}
+      >
+        <Image
+          source={imageSource}
+          style={[
+            stylesObj.optionImage,
+            isWomenClothing && stylesObj.optionImageLarge,
+          ]}
+          resizeMode="contain"
+        />
+      </View>
+    );
+  }
+
+  return (
+    <Text style={stylesObj.optionEmoji}>
+      {getCategoryEmoji(label, pathLabels, nextPath)}
+    </Text>
+  );
 }
 
 async function normalizeToJpegMobile(uri, meta) {
@@ -851,13 +894,12 @@ export default function AddItemScreen({ navigation }) {
                       onPress={() => onPressSearchResult(item)}
                       style={S.optionRow}
                     >
-                      <Text style={S.optionEmoji}>
-                        {getCategoryEmoji(
-                          item.node?.label,
-                          pathLabels,
-                          item?.pathKeys || [],
-                        )}
-                      </Text>
+                      <CategoryLeadingVisual
+                        label={item.node?.label}
+                        pathLabels={pathLabels}
+                        nextPath={item?.pathKeys || []}
+                        stylesObj={S}
+                      />
 
                       <View style={S.optionTextWrap}>
                         <Text style={S.optionText}>{displayLabel}</Text>
@@ -893,9 +935,12 @@ export default function AddItemScreen({ navigation }) {
                     onPress={() => onPressCategoryNode(node)}
                     style={S.optionRow}
                   >
-                    <Text style={S.optionEmoji}>
-                      {getCategoryEmoji(node.label, nextPathLabels, nextPath)}
-                    </Text>
+                    <CategoryLeadingVisual
+                      label={node.label}
+                      pathLabels={nextPathLabels}
+                      nextPath={nextPath}
+                      stylesObj={S}
+                    />
 
                     <View style={S.optionTextWrap}>
                       <Text style={S.optionText}>{displayLabel}</Text>
@@ -1201,7 +1246,7 @@ function makeStyles(tokens) {
     },
 
     optionRow: {
-      minHeight: 76,
+      minHeight: 73,
       borderWidth: 1,
       borderColor: border,
       borderRadius: 18,
@@ -1209,8 +1254,8 @@ function makeStyles(tokens) {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      gap: 12,
-      paddingHorizontal: 14,
+      gap: 16,
+      paddingHorizontal: 16,
       marginBottom: 10,
     },
 
@@ -1219,6 +1264,30 @@ function makeStyles(tokens) {
       lineHeight: 28,
       width: 32,
       textAlign: "center",
+    },
+
+    optionImageWrap: {
+      width: 65,
+      height: 65,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+      borderRadius: 16,
+    },
+
+    optionImage: {
+      width: 60,
+      height: 60,
+    },
+
+    optionImageWrapLarge: {
+      width: 70,
+      height: 70,
+    },
+
+    optionImageLarge: {
+      width: 70,
+      height: 70,
     },
 
     optionTextWrap: {
