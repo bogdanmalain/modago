@@ -1,16 +1,17 @@
 // src/screens/MyItemsScreen.js
+// COMPONENTĂ: MyItemsScreen
 // MODIFICARE:
-// - la ștergerea anunțului, se încearcă și ștergerea imaginilor din bucket-ul Supabase Storage
-// - se extrag path-urile din URL-urile publice / path-urile simple
-// - cleanup-ul Storage este best-effort: dacă pozele nu se pot șterge, anunțul tot se șterge
-// - păstrată logica actuală de UI și favorite
-// - restul logicii rămâne neschimbată
+// - categoria afișată pe card este acum doar categoria principală (ex: "Femei", "Electronice")
+// - păstrăm categoria completă în date, dar în UI nu mai afișăm breadcrumb-ul lung
+// - păstrată varianta nativă pentru mesajul de succes după delete
+// - restul logicii existente rămâne neschimbată
 
 import React, {
   useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -73,6 +74,18 @@ function getMainImage(item) {
   }
 
   return null;
+}
+
+function getPrimaryCategoryLabel(category) {
+  const value = String(category || "").trim();
+  if (!value) return "—";
+
+  const parts = value
+    .split(">")
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+
+  return parts[0] || value;
 }
 
 function formatPrice(price) {
@@ -183,6 +196,8 @@ export default function MyItemsScreen({ navigation, route }) {
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+
+  const lastHandledDeleteAtRef = useRef(null);
 
   const colors = useMemo(() => {
     const bg = pickTok(tokens, "bg", isDark ? "#071224" : "#F7F8FA");
@@ -327,7 +342,13 @@ export default function MyItemsScreen({ navigation, route }) {
 
   useEffect(() => {
     const deletedItemId = route?.params?.deletedItemId;
-    if (!deletedItemId) return;
+    const deletedAt = route?.params?.deletedAt;
+    const deletedSuccessMessage = route?.params?.deletedSuccessMessage;
+
+    if (!deletedItemId || !deletedAt) return;
+    if (lastHandledDeleteAtRef.current === deletedAt) return;
+
+    lastHandledDeleteAtRef.current = deletedAt;
 
     setItems((prev) =>
       Array.isArray(prev)
@@ -347,8 +368,24 @@ export default function MyItemsScreen({ navigation, route }) {
       return next;
     });
 
-    navigation.setParams?.({ deletedItemId: undefined });
-  }, [navigation, route?.params?.deletedItemId]);
+    setTimeout(() => {
+      Alert.alert(
+        "Anunț șters",
+        deletedSuccessMessage || "Anunțul a fost șters cu succes.",
+      );
+    }, 120);
+
+    navigation.setParams?.({
+      deletedItemId: undefined,
+      deletedAt: undefined,
+      deletedSuccessMessage: undefined,
+    });
+  }, [
+    navigation,
+    route?.params?.deletedItemId,
+    route?.params?.deletedAt,
+    route?.params?.deletedSuccessMessage,
+  ]);
 
   useEffect(() => {
     const createdItem = route?.params?.createdItem;
@@ -612,6 +649,10 @@ export default function MyItemsScreen({ navigation, route }) {
         });
 
         closeMenu();
+
+        setTimeout(() => {
+          Alert.alert("Anunț șters", "Anunțul a fost șters cu succes.");
+        }, 120);
       } catch (err) {
         console.error("MyItemsScreen delete item error:", err);
         Alert.alert("Eroare", err?.message || "Nu am putut șterge anunțul.");
@@ -656,6 +697,8 @@ export default function MyItemsScreen({ navigation, route }) {
           : countText.length === 2
             ? BADGE_MIN + 6
             : BADGE_MIN + 12;
+
+      const categoryLabel = getPrimaryCategoryLabel(item?.category);
 
       return (
         <TouchableOpacity
@@ -731,7 +774,7 @@ export default function MyItemsScreen({ navigation, route }) {
 
             <View style={styles.bottomRow}>
               <View style={styles.categoryPill}>
-                <Text style={styles.categoryText}>{item?.category || "—"}</Text>
+                <Text style={styles.categoryText}>{categoryLabel}</Text>
               </View>
 
               <View style={styles.rightBottomCol}>

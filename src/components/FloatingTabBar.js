@@ -1,10 +1,9 @@
 // src/components/FloatingTabBar.js
 // COMPONENTĂ: FloatingTabBar
 // MODIFICARE:
-// - bară mai alungită și mai "capsulă"
-// - colțuri mai rotunde la container
-// - înălțime puțin redusă
-// - activul rămâne curat și uniform
+// - ANDROID FIX: fără glossy / blur pe Android, aspect mai curat
+// - ANDROID FIX: bară puțin mai compactă și stabilă vizual
+// - iOS rămâne cu blur/glossy ca înainte
 // - păstrată logica de navigare și etichetele existente
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
@@ -60,6 +59,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
   const insets = useSafeAreaInsets();
   const { tokens, scheme } = useContext(ThemeContext);
   const isDark = scheme === "dark";
+  const isAndroid = Platform.OS === "android";
 
   const [profileInitial, setProfileInitial] = useState("👤");
 
@@ -90,15 +90,15 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
   const activeIndex = typeof state?.index === "number" ? state.index : 0;
   const activeRouteName = routes?.[activeIndex]?.name || "";
 
-  const extraLift = 18;
+  const extraLift = isAndroid ? 10 : 18;
   const tabBottom = Math.max(
     insets.bottom - (activeRouteName === ROUTES.MyItems ? 43 : 35) + extraLift,
-    12,
+    isAndroid ? 10 : 12,
   );
 
   const S = useMemo(
-    () => makeStyles(tokens, isDark, tabBottom),
-    [tokens, isDark, tabBottom],
+    () => makeStyles(tokens, isDark, tabBottom, isAndroid),
+    [tokens, isDark, tabBottom, isAndroid],
   );
 
   const wanted = [
@@ -242,6 +242,8 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
 
       {Platform.OS === "web" ? (
         <View style={S.barWeb}>{renderButtons()}</View>
+      ) : isAndroid ? (
+        <View style={S.barAndroid}>{renderButtons()}</View>
       ) : (
         <BlurView
           tint={isDark ? "dark" : "light"}
@@ -259,7 +261,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
   );
 }
 
-function makeStyles(tokens, isDark, bottom) {
+function makeStyles(tokens, isDark, bottom, isAndroid) {
   const primary = pickTok(
     tokens,
     "primary",
@@ -271,7 +273,7 @@ function makeStyles(tokens, isDark, bottom) {
   const card = pickTok(tokens, "card", isDark ? "#111A2E" : "#FFFFFF");
   const borderTok = pickTok(tokens, "border", isDark ? "#22304A" : "#D1D5DB");
 
-  const barBg = isDark ? "rgba(11,17,30,0.84)" : "rgba(255,255,255,0.88)";
+  const barBg = isDark ? "rgba(11,17,30,0.96)" : "rgba(255,255,255,0.98)";
 
   const barBorder = isDark
     ? hexToRgba(text, 0.08, "rgba(255,255,255,0.08)")
@@ -308,9 +310,10 @@ function makeStyles(tokens, isDark, bottom) {
 
   const dotBorder = isDark ? card : bg;
 
-  const horizontalInset = 22;
-  const barRadius = 34;
-  const bubbleRadius = 22;
+  const horizontalInset = isAndroid ? 16 : 22;
+  const barRadius = isAndroid ? 30 : 34;
+  const bubbleRadius = isAndroid ? 20 : 22;
+  const barHeight = isAndroid ? 62 : 64;
 
   return StyleSheet.create({
     wrap: {
@@ -326,10 +329,10 @@ function makeStyles(tokens, isDark, bottom) {
       left: horizontalInset,
       right: horizontalInset,
       bottom,
-      height: 64,
+      height: barHeight,
       borderRadius: barRadius,
       shadowColor: "#000",
-      shadowOpacity: isDark ? 0.18 : 0.05,
+      shadowOpacity: isDark ? (isAndroid ? 0.14 : 0.18) : 0.05,
       shadowRadius: isDark ? 14 : 10,
       shadowOffset: { width: 0, height: 5 },
       elevation: isDark ? 8 : 4,
@@ -340,7 +343,7 @@ function makeStyles(tokens, isDark, bottom) {
       left: horizontalInset,
       right: horizontalInset,
       bottom,
-      height: 64,
+      height: barHeight,
       borderRadius: barRadius,
       overflow: "hidden",
       borderWidth: 1,
@@ -348,17 +351,12 @@ function makeStyles(tokens, isDark, bottom) {
       backgroundColor: "transparent",
     },
 
-    glassOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: barBg,
-    },
-
-    barWeb: {
+    barAndroid: {
       position: "absolute",
       left: horizontalInset,
       right: horizontalInset,
       bottom,
-      height: 64,
+      height: barHeight,
       borderRadius: barRadius,
       overflow: "hidden",
       borderWidth: 1,
@@ -366,12 +364,34 @@ function makeStyles(tokens, isDark, bottom) {
       backgroundColor: barBg,
     },
 
+    glassOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: isDark
+        ? "rgba(11,17,30,0.84)"
+        : "rgba(255,255,255,0.88)",
+    },
+
+    barWeb: {
+      position: "absolute",
+      left: horizontalInset,
+      right: horizontalInset,
+      bottom,
+      height: barHeight,
+      borderRadius: barRadius,
+      overflow: "hidden",
+      borderWidth: 1,
+      borderColor: barBorder,
+      backgroundColor: isDark
+        ? "rgba(11,17,30,0.84)"
+        : "rgba(255,255,255,0.88)",
+    },
+
     row: {
       flex: 1,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      paddingHorizontal: 10,
+      paddingHorizontal: isAndroid ? 8 : 10,
     },
 
     item: {
@@ -384,7 +404,7 @@ function makeStyles(tokens, isDark, bottom) {
 
     tabBubble: {
       width: "100%",
-      minHeight: 48,
+      minHeight: isAndroid ? 46 : 48,
       borderRadius: bubbleRadius,
       alignItems: "center",
       justifyContent: "center",
@@ -405,7 +425,7 @@ function makeStyles(tokens, isDark, bottom) {
 
     label: {
       marginTop: 4,
-      fontSize: 10.5,
+      fontSize: isAndroid ? 10 : 10.5,
       fontWeight: "800",
       textAlign: "center",
       maxWidth: "96%",

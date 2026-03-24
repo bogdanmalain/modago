@@ -1,11 +1,9 @@
 // src/screens/HomeScreen.js
 // COMPONENTĂ: HomeScreen
 // MODIFICARE:
-// - dots-urile de pe carduri sunt acum centrate, albe și în stil apropiat de ItemDetails
-// - FIX: favoritele sunt normalizate pe chei string, ca să se încarce corect indiferent cum vine map-ul
-// - FIX: după toggle favorite facem refresh punctual pentru itemul respectiv, ca să nu rămână count/map greșit
-// - FIX: dacă utilizatorul are vacation_mode_enabled activ, propriile lui anunțuri sunt ascunse din Home
-// - păstrat restul logicii existente (refresh silențios, keepScroll, create/update/delete local)
+// - categoria afișată pe carduri este acum doar categoria principală (ex: "Electronice")
+// - păstrăm categoria completă în date pentru filtrare/căutare, dar UI-ul cardului primește doar label-ul mare
+// - restul logicii existente rămâne neschimbată (favorite, vacation mode, refresh, create/update/delete local)
 
 import React, {
   useCallback,
@@ -76,6 +74,18 @@ function normalizeBoolMap(rawMap, ids = []) {
   return next;
 }
 
+function getPrimaryCategoryLabel(category) {
+  const value = String(category || "").trim();
+  if (!value) return "";
+
+  const parts = value
+    .split(">")
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+
+  return parts[0] || value;
+}
+
 export default function HomeScreen({ navigation, route, query, setQuery }) {
   const insets = useSafeAreaInsets();
 
@@ -116,9 +126,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
   const H_PADDING = 14;
   const numColumns = 2;
 
-  const currentUserId = session?.user?.id
-    ? String(session.user.id)
-    : null;
+  const currentUserId = session?.user?.id ? String(session.user.id) : null;
 
   const vacationModeEnabled = Boolean(
     session?.user?.user_metadata?.vacation_mode_enabled,
@@ -413,9 +421,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
     let base = Array.isArray(items) ? items : [];
 
     if (vacationModeEnabled && currentUserId) {
-      base = base.filter(
-        (it) => String(it?.user_id || "") !== currentUserId,
-      );
+      base = base.filter((it) => String(it?.user_id || "") !== currentUserId);
     }
 
     if (activeCat && activeCat !== "Toate") {
@@ -541,10 +547,15 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
         navigation.navigate(ROUTES.ItemDetails, { item });
       const onFav = (e) => onToggleFav(e, item);
 
+      const itemForCard = {
+        ...item,
+        category: getPrimaryCategoryLabel(item?.category),
+      };
+
       if (isDark) {
         return (
           <ItemCardDarkProduct
-            item={item}
+            item={itemForCard}
             mainImage={mainImage}
             dots={dots}
             isFav={isFav}
@@ -559,7 +570,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
 
       return (
         <ItemCardLightWarm
-          item={item}
+          item={itemForCard}
           mainImage={mainImage}
           dots={dots}
           isFav={isFav}

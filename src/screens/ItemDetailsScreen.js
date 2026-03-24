@@ -1,8 +1,9 @@
 // src/screens/ItemDetailsScreen.js
 // COMPONENTĂ: ItemDetailsScreen
 // MODIFICARE:
-// - FIX: am scos bara/header-ul sticky care apărea la scroll sus, atât pe light cât și pe dark
-// - back button-ul rămâne flotant peste conținut, dar fără fundalul lat alb din spate
+// - în UI afișăm doar categoria principală (ex: "Electronice"), nu tot breadcrumb-ul lung
+// - păstrăm categoria completă în date pentru logică/recomandări, dar textul vizibil este simplificat
+// - și cardurile din "Mai multe de la acest utilizator" / "Articole similare" afișează doar categoria mare
 // - restul layout-ului și logicii rămân neschimbate
 
 import React, {
@@ -76,6 +77,18 @@ function normalizeImageEntries(item) {
   const raw = item?.images || item?.image_urls || [];
   if (!Array.isArray(raw)) return [];
   return raw.filter(Boolean);
+}
+
+function getPrimaryCategoryLabel(category) {
+  const value = String(category || "").trim();
+  if (!value) return "";
+
+  const parts = value
+    .split(">")
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+
+  return parts[0] || value;
 }
 
 function extractStoragePathFromUrl(url, bucket = STORAGE_BUCKET) {
@@ -162,7 +175,9 @@ async function deleteItemWithImages(item, bucket = STORAGE_BUCKET) {
 
 function buildSharePayload(item) {
   const title = item?.title || "Produs";
-  const category = item?.category ? `Categorie: ${item.category}` : "";
+  const category = item?.category
+    ? `Categorie: ${getPrimaryCategoryLabel(item.category)}`
+    : "";
   const price =
     typeof item?.price === "number"
       ? `${item.price} lei`
@@ -328,6 +343,11 @@ export default function ItemDetailsScreen({ navigation, route }) {
     const arr = item?.images || [];
     return Array.isArray(arr) ? arr.filter(Boolean) : [];
   }, [item?.images]);
+
+  const primaryCategoryLabel = useMemo(
+    () => getPrimaryCategoryLabel(item?.category),
+    [item?.category],
+  );
 
   useEffect(() => {
     let sub;
@@ -696,7 +716,7 @@ export default function ItemDetailsScreen({ navigation, route }) {
             </Text>
             {!!relatedItem?.category ? (
               <Text numberOfLines={1} style={S.relatedMeta}>
-                {relatedItem.category}
+                {getPrimaryCategoryLabel(relatedItem.category)}
               </Text>
             ) : null}
           </View>
@@ -918,8 +938,8 @@ export default function ItemDetailsScreen({ navigation, route }) {
             </View>
           ) : null}
 
-          {!!item.category ? (
-            <Text style={S.cat}>Categorie: {item.category}</Text>
+          {!!primaryCategoryLabel ? (
+            <Text style={S.cat}>Categorie: {primaryCategoryLabel}</Text>
           ) : null}
 
           <Text style={S.section}>Descriere</Text>

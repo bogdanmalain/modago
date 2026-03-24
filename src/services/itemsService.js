@@ -4,14 +4,16 @@
 // - CRUD pe tabelul items
 //
 // MODIFICĂRI:
-// - adăugate funcții helper pentru Vacation Mode
-// - fetchItems ascunde anunțurile userului logat când vacation_mode_enabled este activ
-// - fetchMoreFromSeller nu mai returnează anunțurile userului logat când Vacation Mode este activ
-// - fetchSimilarItems exclude anunțurile userului logat când Vacation Mode este activ
+// - adăugate helpers centralizate pentru path-urile din Supabase Storage
+// - adăugată ștergere reală și strictă a imaginilor din bucket-ul "items"
+// - adăugată funcție deleteItemWithImages() care oprește flow-ul dacă storage remove eșuează
+// - fetchItems/fetchMoreFromSeller/fetchSimilarItems păstrează logica pentru Vacation Mode
 // - restul logicii existente rămâne neschimbată
 
 import { supabase } from "../supabaseClient";
 import { removeFavoritesByItem } from "./favoritesService";
+
+const STORAGE_BUCKET = "items";
 
 async function getVacationContext() {
   try {
@@ -29,6 +31,87 @@ async function getVacationContext() {
       vacationModeEnabled: false,
     };
   }
+}
+
+export function extractStoragePathFromUrl(url, bucket = STORAGE_BUCKET) {
+  const value = String(url || "").trim();
+  if (!value) return null;
+
+  if (
+    !value.startsWith("http://") &&
+    !value.startsWith("https://") &&
+    !value.includes("/storage/v1/object/")
+  ) {
+    return value;
+  }
+
+  try {
+    const u = new URL(value);
+    const pathname = decodeURIComponent(u.pathname);
+
+    const publicMarker = `/storage/v1/object/public/${bucket}/`;
+    const signMarker = `/storage/v1/object/sign/${bucket}/`;
+    const renderMarker = `/storage/v1/object/render/image/public/${bucket}/`;
+
+    if (pathname.includes(publicMarker)) {
+      return pathname.split(publicMarker)[1] || null;
+    }
+
+    if (pathname.includes(signMarker)) {
+      return pathname.split(signMarker)[1] || null;
+    }
+
+    if (pathname.includes(renderMarker)) {
+      return pathname.split(renderMarker)[1] || null;
+    }
+
+    const idx = pathname.indexOf(`/${bucket}/`);
+    if (idx >= 0) {
+      return pathname.slice(idx + bucket.length + 2) || null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function getStoragePathsFromImages(images, bucket = STORAGE_BUCKET) {
+  const arr = Array.isArray(images) ? images : [];
+
+  const paths = arr
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return extractStoragePathFromUrl(entry, bucket);
+      }
+      if (entry?.url) return extractStoragePathFromUrl(entry.url, bucket);
+      if (entry?.uri) return extractStoragePathFromUrl(entry.uri, bucket);
+      return null;
+    })
+    .filter(Boolean);
+
+  return Array.from(new Set(paths));
+}
+
+export async function removeItemImagesFromStorage(
+  images,
+  bucket = STORAGE_BUCKET,
+) {
+  const paths = getStoragePathsFromImages(images, bucket);
+
+  if (!paths.length) return true;
+
+  console.log("🧹 removing storage paths:", paths);
+
+  const { data, error } = await supabase.storage.from(bucket).remove(paths);
+
+  if (error) {
+    console.log("❌ storage remove error:", error);
+    throw error;
+  }
+
+  console.log("✅ storage remove result:", data);
+  return true;
 }
 
 // ─── Read ────────────────────────────────────────────────────────────────────
@@ -182,13 +265,29 @@ export async function deleteItem(itemId) {
     throw new Error("[itemsService] itemId lipsește pentru ștergere.");
   }
 
-  // Curățăm favorites înainte (nu avem CASCADE pe FK pentru că item_id e text)
   await removeFavoritesByItem(itemId);
 
   const { error } = await supabase
     .from("items")
     .delete()
     .eq("id", String(itemId));
+
+  if (error) throw error;
+  return true;
+}
+
+export async function deleteItemWithImages(item, bucket = STORAGE_BUCKET) {
+  if (!item?.id) {
+    throw new Error("[itemsService] deleteItemWithImages: item.id lipsește.");
+  }
+
+  await removeFavoritesByItem(item.id);
+  await removeItemImagesFromStorage(item.images || [], bucket);
+
+  const { error } = await supabase
+    .from("items")
+    .delete()
+    .eq("id", String(item.id));
 
   if (error) throw error;
   return true;

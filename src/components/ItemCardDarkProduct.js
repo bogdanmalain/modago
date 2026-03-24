@@ -1,9 +1,10 @@
 // src/components/ItemCardDarkProduct.js
 // COMPONENTĂ: ItemCardDarkProduct
 // MODIFICARE:
-// - sheet-ul 2 ("Protecția cumpărătorului") folosește acum același top spacing ca în ItemDetails
-// - adăugat useSafeAreaInsets pentru aliniere identică sus
-// - restul flow-ului cu cele 2 sheet-uri rămâne neschimbat
+// - ANDROID FIX: body mai stabil și fonturi puțin ajustate ca textul să nu mai iasă din card
+// - ANDROID FIX: favorite circle puțin mai mic
+// - păstrat iOS neschimbat
+// - restul flow-ului rămâne neschimbat
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -18,11 +19,12 @@ import {
   Easing,
   Dimensions,
   TouchableOpacity,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const ICON = 44;
+const ICON = Platform.OS === "android" ? 42 : 44;
 const BADGE_MIN = 22;
 
 function toPriceNumber(value) {
@@ -215,9 +217,21 @@ export default function ItemCardDarkProduct({
             {dots}
           </View>
 
-          <View style={styles.body}>
+          <View
+            style={[
+              styles.body,
+              Platform.OS === "android" && styles.bodyAndroid,
+            ]}
+          >
             <View style={styles.titleRow}>
-              <Text style={[styles.title, { color: text }]} numberOfLines={2}>
+              <Text
+                style={[
+                  styles.title,
+                  { color: text },
+                  Platform.OS === "android" && styles.titleAndroid,
+                ]}
+                numberOfLines={2}
+              >
                 {item?.title}
               </Text>
 
@@ -265,7 +279,13 @@ export default function ItemCardDarkProduct({
             </View>
 
             <Pressable onPress={openPriceSheet} hitSlop={6}>
-              <Text style={[styles.price, { color: primary }]}>
+              <Text
+                style={[
+                  styles.price,
+                  { color: primary },
+                  Platform.OS === "android" && styles.priceAndroid,
+                ]}
+              >
                 {numericPrice !== null
                   ? formatRon(numericPrice)
                   : `${item?.price} lei`}
@@ -273,7 +293,13 @@ export default function ItemCardDarkProduct({
 
               {numericPrice !== null ? (
                 <View style={styles.inclRow}>
-                  <Text style={[styles.inclText, { color: primary }]}>
+                  <Text
+                    style={[
+                      styles.inclText,
+                      { color: primary },
+                      Platform.OS === "android" && styles.inclTextAndroid,
+                    ]}
+                  >
                     {formatRon(totalIncl)} incl.
                   </Text>
 
@@ -303,7 +329,10 @@ export default function ItemCardDarkProduct({
                   },
                 ]}
               >
-                <Text style={[styles.catText, { color: text }]}>
+                <Text
+                  style={[styles.catText, { color: text }]}
+                  numberOfLines={1}
+                >
                   {item?.category}
                 </Text>
               </View>
@@ -739,15 +768,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   body: { padding: 12 },
+  bodyAndroid: {
+    paddingTop: 11,
+    paddingBottom: 13,
+    minHeight: 146,
+  },
   titleRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
   },
   title: {
     flex: 1,
     fontSize: 16,
     fontWeight: "900",
     paddingRight: 10,
+    lineHeight: 21,
+  },
+  titleAndroid: {
+    fontSize: 15,
+    lineHeight: 20,
+    paddingRight: 8,
   },
   favWrap: {
     alignItems: "center",
@@ -786,7 +826,12 @@ const styles = StyleSheet.create({
   },
   countText: { fontSize: 12, fontWeight: "900" },
 
-  price: { marginTop: 8, fontSize: 18, fontWeight: "900" },
+  price: { marginTop: 8, fontSize: 18, fontWeight: "900", lineHeight: 22 },
+  priceAndroid: {
+    fontSize: 17,
+    lineHeight: 21,
+    marginTop: 7,
+  },
   inclRow: {
     marginTop: 2,
     flexDirection: "row",
@@ -796,6 +841,9 @@ const styles = StyleSheet.create({
   inclText: {
     fontSize: 14,
     fontWeight: "600",
+  },
+  inclTextAndroid: {
+    fontSize: 13,
   },
   inclIcons: {
     flexDirection: "row",
@@ -814,6 +862,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
+    maxWidth: "100%",
   },
   catText: { fontWeight: "800", fontSize: 13 },
 

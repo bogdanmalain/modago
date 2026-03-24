@@ -1,10 +1,8 @@
 // src/screens/AddItemScreen.js
-// MODIFICARE:
-// - reducere dimensiune poze înainte de upload pentru a scădea traficul Supabase Storage
-// - MAX_LONG_SIDE: 1600 -> 1080
-// - JPEG_QUALITY: 0.85 -> 0.72
-// - păstrat flow-ul actual: JPEG real pe mobile + upload normal pe web
-// - restul logicii rămâne neschimbată
+// Ce este: ecranul de publicare produs pentru ModaGo.
+// Ce s-a modificat: am scos textul "Path: ..."; am făcut rezolvarea atributelor
+// mai robustă pentru categoria selectată, astfel încât câmpurile dinamice
+// să apară corect pentru Femei/Bărbați și Telefoane mobile.
 
 import React, {
   useCallback,
@@ -25,6 +23,7 @@ import {
   ScrollView,
   Platform,
   Keyboard,
+  Modal,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -38,11 +37,32 @@ import { ThemeContext } from "../theme/ThemeProvider";
 import HeaderBackButton, {
   HEADER_BACK_SIZE,
 } from "../components/HeaderBackButton";
+import {
+  CATEGORY_TREE,
+  getNodesByPath,
+  getPathLabel,
+  getPathLabels,
+  getNodeByPath,
+  isLeafNode,
+  findPathByQuery,
+} from "../constants/categoryTree";
+import {
+  getCategoryAttributes,
+  getOptionLabel,
+} from "../constants/categoryAttributes";
 
 const STORAGE_BUCKET = "items";
 const MAX_IMAGES = 6;
 const MAX_LONG_SIDE = 1080;
 const JPEG_QUALITY = 0.72;
+
+const HIDDEN_TOP_CATEGORY_KEYS = new Set(["entertainment", "hobby", "sports"]);
+const HIDDEN_TOP_CATEGORY_LABELS = new Set([
+  "divertisment",
+  "hobbyuri și colecții",
+  "hobbyuri si colectii",
+  "sporturi",
+]);
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -61,6 +81,110 @@ function base64ToUint8Array(base64) {
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
+}
+
+function normalizeLabel(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function shouldHideTopCategoryByNode(node) {
+  const key = normalizeLabel(node?.key);
+  const label = normalizeLabel(node?.label);
+  return (
+    HIDDEN_TOP_CATEGORY_KEYS.has(key) || HIDDEN_TOP_CATEGORY_LABELS.has(label)
+  );
+}
+
+function shouldHideTopCategoryByPathKeys(pathKeys = [], pathLabel = "") {
+  const firstKey = normalizeLabel(pathKeys?.[0]);
+  const firstLabel = normalizeLabel(
+    String(pathLabel || "")
+      .split(">")
+      .map((x) => x.trim())[0] || "",
+  );
+
+  return (
+    HIDDEN_TOP_CATEGORY_KEYS.has(firstKey) ||
+    HIDDEN_TOP_CATEGORY_LABELS.has(firstLabel)
+  );
+}
+
+function getDisplayCategoryLabel(rawLabel, pathLabels = [], nextPath = []) {
+  const normalized = normalizeLabel(rawLabel);
+  const topLabel = normalizeLabel(pathLabels?.[0] || "");
+  const depth = Array.isArray(nextPath) ? nextPath.length : 0;
+
+  if (depth === 2) {
+    if (topLabel === "femei") {
+      if (normalized === "îmbrăcăminte" || normalized === "imbracaminte") {
+        return "Haine";
+      }
+      if (normalized === "încălțăminte" || normalized === "incaltaminte") {
+        return "Pantofi";
+      }
+    }
+
+    if (topLabel === "bărbați" || topLabel === "barbati") {
+      if (normalized === "îmbrăcăminte" || normalized === "imbracaminte") {
+        return "Haine";
+      }
+      if (normalized === "încălțăminte" || normalized === "incaltaminte") {
+        return "Pantofi";
+      }
+    }
+  }
+
+  return rawLabel || "";
+}
+
+function getCategoryEmoji(label, pathLabels = [], nextPath = []) {
+  const displayLabel = normalizeLabel(
+    getDisplayCategoryLabel(label, pathLabels, nextPath),
+  );
+  const topLabel = normalizeLabel(pathLabels?.[0] || "");
+  const depth = Array.isArray(nextPath) ? nextPath.length : 0;
+
+  if (depth === 1) {
+    if (displayLabel === "femei") return "👗";
+    if (displayLabel === "bărbați" || displayLabel === "barbati") return "👔";
+    if (displayLabel === "copii") return "🧸";
+    if (displayLabel === "casă" || displayLabel === "casa") return "🏠";
+    if (displayLabel === "electronice") return "📱";
+  }
+
+  if (topLabel === "femei" && depth === 2) {
+    if (displayLabel === "haine") return "👗";
+    if (displayLabel === "pantofi") return "👠";
+    if (displayLabel === "genți" || displayLabel === "genti") return "👜";
+    if (displayLabel === "accesorii") return "💍";
+  }
+
+  if ((topLabel === "bărbați" || topLabel === "barbati") && depth === 2) {
+    if (displayLabel === "haine") return "👕";
+    if (displayLabel === "pantofi") return "👞";
+    if (displayLabel === "accesorii") return "⌚";
+  }
+
+  if (displayLabel.includes("roch")) return "👗";
+  if (displayLabel.includes("haine")) return "👕";
+  if (displayLabel.includes("pantofi")) return "👞";
+  if (displayLabel.includes("încăl") || displayLabel.includes("incal")) {
+    return "👞";
+  }
+  if (displayLabel.includes("geant")) return "👜";
+  if (displayLabel.includes("accesor")) return "⌚";
+  if (displayLabel.includes("telefon")) return "📱";
+  if (displayLabel.includes("laptop")) return "💻";
+  if (displayLabel.includes("tablet")) return "📲";
+  if (displayLabel.includes("tv")) return "📺";
+  if (displayLabel.includes("ceas")) return "⌚";
+  if (displayLabel.includes("jachet")) return "🧥";
+  if (displayLabel.includes("cop")) return "🧸";
+  if (displayLabel.includes("cas")) return "🏠";
+
+  return "✨";
 }
 
 async function normalizeToJpegMobile(uri, meta) {
@@ -95,7 +219,6 @@ async function normalizeToJpegWeb(uri) {
   if (!res.ok) throw new Error("Nu pot citi poza (fetch a eșuat).");
 
   const blob = await res.blob();
-
   const bitmap = await createImageBitmap(blob);
 
   let targetWidth = bitmap.width;
@@ -170,15 +293,58 @@ async function uploadImageToSupabase({ uri, userId, meta }) {
   return publicUrl;
 }
 
+function AttributeSelectField({
+  label,
+  value,
+  displayValue,
+  placeholder,
+  onPress,
+  stylesObj,
+}) {
+  return (
+    <View style={stylesObj.attrBlock}>
+      <Text style={stylesObj.attrLabel}>{label}</Text>
+
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={onPress}
+        style={stylesObj.selectInput}
+      >
+        <View style={stylesObj.selectInputContent}>
+          <Text
+            style={[
+              stylesObj.selectInputValue,
+              !value && stylesObj.selectInputPlaceholder,
+            ]}
+            numberOfLines={2}
+          >
+            {displayValue || placeholder}
+          </Text>
+
+          <Text style={stylesObj.selectChevron}>›</Text>
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 export default function AddItemScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { tokens } = useContext(ThemeContext);
+
   const S = useMemo(() => makeStyles(tokens), [tokens]);
+  const onPrimaryColor = pickTok(tokens, "onPrimary", "#FFFFFF");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
-  const [category, setCategory] = useState("");
+
+  const [categoryPath, setCategoryPath] = useState([]);
+  const [categorySearch, setCategorySearch] = useState("");
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+
+  const [activeAttribute, setActiveAttribute] = useState(null);
+  const [attributeValues, setAttributeValues] = useState({});
 
   const [localImages, setLocalImages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -247,14 +413,161 @@ export default function AddItemScreen({ navigation }) {
     return Number.isFinite(n) ? n : null;
   }, [price]);
 
+  const categoryLabel = useMemo(() => {
+    return categoryPath.length ? getPathLabel(CATEGORY_TREE, categoryPath) : "";
+  }, [categoryPath]);
+
+  const categoryLabels = useMemo(() => {
+    return getPathLabels(CATEGORY_TREE, categoryPath);
+  }, [categoryPath]);
+
+  const categoryLeafNode = useMemo(() => {
+    return getNodeByPath(CATEGORY_TREE, categoryPath);
+  }, [categoryPath]);
+
+  const categoryLeafKey = categoryLeafNode?.key || "";
+
+  const shortCategoryLabel = useMemo(() => {
+    if (!categoryLabels.length) return "";
+    return categoryLabels[categoryLabels.length - 1];
+  }, [categoryLabels]);
+
+  const currentCategoryNodes = useMemo(() => {
+    const nodes = getNodesByPath(CATEGORY_TREE, categoryPath);
+
+    if (!categoryPath.length) {
+      return nodes.filter((node) => !shouldHideTopCategoryByNode(node));
+    }
+
+    return nodes;
+  }, [categoryPath]);
+
+  const isSearching = String(categorySearch || "").trim().length > 0;
+
+  const searchResults = useMemo(() => {
+    return findPathByQuery(CATEGORY_TREE, categorySearch)
+      .filter(
+        (item) =>
+          !shouldHideTopCategoryByPathKeys(item?.pathKeys, item?.pathLabel),
+      )
+      .slice(0, 50);
+  }, [categorySearch]);
+
+  const dynamicAttributes = useMemo(() => {
+    const candidates = [
+      categoryLeafKey,
+      ...(Array.isArray(categoryPath) ? [...categoryPath].reverse() : []),
+    ].filter(Boolean);
+
+    for (const key of candidates) {
+      const attrs = getCategoryAttributes(key);
+      if (Array.isArray(attrs) && attrs.length > 0) {
+        return attrs;
+      }
+    }
+
+    return [];
+  }, [categoryLeafKey, categoryPath]);
+
+  const activeAttributeOptions = useMemo(() => {
+    if (!activeAttribute) return [];
+    return activeAttribute.options || [];
+  }, [activeAttribute]);
+
+  const activeAttributeValue = activeAttribute
+    ? attributeValues[activeAttribute.key] || ""
+    : "";
+
+  const currentCategoryTitle = useMemo(() => {
+    if (!categoryLabels.length) return "Categorie";
+    return categoryLabels[categoryLabels.length - 1];
+  }, [categoryLabels]);
+
+  const openCategoryPicker = useCallback(() => {
+    setCategoryPickerVisible(true);
+  }, []);
+
+  const closeCategoryPicker = useCallback(() => {
+    setCategoryPickerVisible(false);
+    setCategorySearch("");
+  }, []);
+
+  const goLevelBack = useCallback(() => {
+    if (isSearching) {
+      setCategorySearch("");
+      return;
+    }
+
+    setCategoryPath((prev) => {
+      if (!prev.length) {
+        closeCategoryPicker();
+        return prev;
+      }
+      return prev.slice(0, -1);
+    });
+  }, [isSearching, closeCategoryPicker]);
+
+  const resetCategorySelection = useCallback(() => {
+    setCategoryPath([]);
+    setCategorySearch("");
+    setAttributeValues({});
+  }, []);
+
+  const onPressCategoryNode = useCallback((node) => {
+    if (!node?.key) return;
+
+    setCategoryPath((prev) => {
+      const nextPath = [...prev, node.key];
+
+      if (isLeafNode(CATEGORY_TREE, nextPath)) {
+        setCategoryPickerVisible(false);
+        setCategorySearch("");
+        setAttributeValues({});
+        return nextPath;
+      }
+
+      return nextPath;
+    });
+  }, []);
+
+  const onPressSearchResult = useCallback((item) => {
+    if (!item?.pathKeys?.length) return;
+    setCategoryPath(item.pathKeys);
+    setCategoryPickerVisible(false);
+    setCategorySearch("");
+    setAttributeValues({});
+  }, []);
+
+  const openAttributePicker = useCallback((attribute) => {
+    setActiveAttribute(attribute);
+  }, []);
+
+  const closeAttributePicker = useCallback(() => {
+    setActiveAttribute(null);
+  }, []);
+
+  const selectAttributeOption = useCallback((attributeKey, value) => {
+    setAttributeValues((prev) => ({
+      ...prev,
+      [attributeKey]: value,
+    }));
+    setActiveAttribute(null);
+  }, []);
+
   const publish = useCallback(async () => {
     setErrorMsg("");
 
     if (!title.trim()) return setErrorMsg("Titlul e obligatoriu.");
     if (!description.trim()) return setErrorMsg("Descrierea e obligatorie.");
     if (normalizedPrice == null) return setErrorMsg("Preț invalid.");
-    if (!category.trim()) return setErrorMsg("Categoria e obligatorie.");
+    if (!categoryLabel.trim()) return setErrorMsg("Categoria e obligatorie.");
     if (localImages.length === 0) return setErrorMsg("Alege cel puțin o poză.");
+
+    for (const attribute of dynamicAttributes) {
+      if (!attributeValues[attribute.key]) {
+        return setErrorMsg(`Câmp obligatoriu: ${attribute.label}.`);
+      }
+    }
 
     try {
       setLoading(true);
@@ -285,7 +598,10 @@ export default function AddItemScreen({ navigation }) {
         title: title.trim(),
         description: description.trim(),
         price: normalizedPrice,
-        category: category.trim(),
+        category: categoryLabel.trim(),
+        category_key: categoryLeafKey || null,
+        category_path: categoryPath,
+        attributes: attributeValues,
         images: urls,
         user_id: userId,
       };
@@ -297,13 +613,13 @@ export default function AddItemScreen({ navigation }) {
       setTitle("");
       setDescription("");
       setPrice("");
-      setCategory("");
+      setCategoryPath([]);
+      setAttributeValues({});
       setLocalImages([]);
 
       const createdRow =
         created && typeof created === "object" ? created : null;
       const createdId = createdRow?.id != null ? String(createdRow.id) : null;
-
       const createdAt = Date.now();
 
       if (createdRow?.id) {
@@ -327,7 +643,23 @@ export default function AddItemScreen({ navigation }) {
     } finally {
       setLoading(false);
     }
-  }, [title, description, normalizedPrice, category, localImages, navigation]);
+  }, [
+    title,
+    description,
+    normalizedPrice,
+    categoryLabel,
+    categoryLeafKey,
+    categoryPath,
+    dynamicAttributes,
+    attributeValues,
+    localImages,
+    navigation,
+  ]);
+
+  const bottomSafeSpace =
+    Platform.OS === "android"
+      ? Math.max(insets.bottom, 18) + 120
+      : Math.max(insets.bottom, 16) + 18;
 
   return (
     <View style={S.screen}>
@@ -338,7 +670,7 @@ export default function AddItemScreen({ navigation }) {
           S.page,
           {
             paddingTop: insets.top + 10 + HEADER_BACK_SIZE + 18,
-            paddingBottom: Math.max(insets.bottom, 16) + 18,
+            paddingBottom: bottomSafeSpace,
           },
         ]}
         keyboardShouldPersistTaps="handled"
@@ -356,6 +688,7 @@ export default function AddItemScreen({ navigation }) {
           placeholderTextColor={S.placeholder.color}
           style={S.input}
         />
+
         <TextInput
           value={description}
           onChangeText={setDescription}
@@ -364,6 +697,7 @@ export default function AddItemScreen({ navigation }) {
           style={[S.input, S.textarea]}
           multiline
         />
+
         <TextInput
           value={price}
           onChangeText={setPrice}
@@ -372,13 +706,53 @@ export default function AddItemScreen({ navigation }) {
           style={S.input}
           keyboardType="numeric"
         />
-        <TextInput
-          value={category}
-          onChangeText={setCategory}
-          placeholder="Categorie (ex: Femei)"
-          placeholderTextColor={S.placeholder.color}
-          style={S.input}
-        />
+
+        <View style={S.attrBlock}>
+          <Text style={S.attrLabel}>Categorie</Text>
+
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={openCategoryPicker}
+            style={S.selectInput}
+            disabled={loading}
+          >
+            <View style={S.selectInputContent}>
+              <Text
+                style={[
+                  S.selectInputValue,
+                  !shortCategoryLabel && S.selectInputPlaceholder,
+                ]}
+                numberOfLines={2}
+              >
+                {shortCategoryLabel || "Alege categoria"}
+              </Text>
+              <Text style={S.selectChevron}>›</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {dynamicAttributes.length > 0 && (
+          <View style={S.dynamicSection}>
+            <Text style={S.dynamicSectionTitle}>Detalii categorie</Text>
+
+            {dynamicAttributes.map((attribute) => {
+              const value = attributeValues[attribute.key] || "";
+              const displayValue = getOptionLabel(attribute.options, value);
+
+              return (
+                <AttributeSelectField
+                  key={attribute.key}
+                  label={attribute.label}
+                  value={value}
+                  displayValue={displayValue}
+                  placeholder={attribute.placeholder}
+                  onPress={() => openAttributePicker(attribute)}
+                  stylesObj={S}
+                />
+              );
+            })}
+          </View>
+        )}
 
         <TouchableOpacity
           activeOpacity={0.9}
@@ -417,7 +791,7 @@ export default function AddItemScreen({ navigation }) {
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color={S.onPrimary.color} />
+            <ActivityIndicator color={onPrimaryColor} />
           ) : (
             <Text style={S.pubText}>Publică produsul</Text>
           )}
@@ -425,6 +799,182 @@ export default function AddItemScreen({ navigation }) {
 
         <View style={{ height: 6 }} />
       </ScrollView>
+
+      <Modal
+        visible={categoryPickerVisible}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={closeCategoryPicker}
+      >
+        <View style={S.fullscreenModal}>
+          <HeaderBackButton onPress={goLevelBack} top={insets.top + 10} />
+
+          <ScrollView
+            contentContainerStyle={[
+              S.fullscreenContent,
+              {
+                paddingTop: insets.top + 10 + HEADER_BACK_SIZE + 18,
+                paddingBottom: Math.max(insets.bottom, 16) + 24,
+              },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={S.fullscreenTitle}>{currentCategoryTitle}</Text>
+
+            <TextInput
+              value={categorySearch}
+              onChangeText={setCategorySearch}
+              placeholder="Găsește o categorie"
+              placeholderTextColor={S.placeholder.color}
+              style={S.searchInput}
+            />
+
+            {isSearching ? (
+              searchResults.length > 0 ? (
+                searchResults.map((item) => {
+                  const pathLabels = String(item?.pathLabel || "")
+                    .split(">")
+                    .map((x) => x.trim())
+                    .filter(Boolean);
+
+                  const displayLabel = getDisplayCategoryLabel(
+                    item.node?.label,
+                    pathLabels,
+                    item?.pathKeys || [],
+                  );
+
+                  return (
+                    <TouchableOpacity
+                      key={item.pathLabel}
+                      activeOpacity={0.88}
+                      onPress={() => onPressSearchResult(item)}
+                      style={S.optionRow}
+                    >
+                      <Text style={S.optionEmoji}>
+                        {getCategoryEmoji(
+                          item.node?.label,
+                          pathLabels,
+                          item?.pathKeys || [],
+                        )}
+                      </Text>
+
+                      <View style={S.optionTextWrap}>
+                        <Text style={S.optionText}>{displayLabel}</Text>
+                        <Text style={S.optionSubtext}>{item.pathLabel}</Text>
+                      </View>
+
+                      <Text style={S.optionChevron}>›</Text>
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                <View style={S.emptyState}>
+                  <Text style={S.emptyStateTitle}>Nicio categorie găsită</Text>
+                  <Text style={S.emptyStateText}>
+                    Încearcă un termen mai scurt sau navighează manual.
+                  </Text>
+                </View>
+              )
+            ) : currentCategoryNodes.length > 0 ? (
+              currentCategoryNodes.map((node) => {
+                const nextPath = [...categoryPath, node.key];
+                const nextPathLabels = getPathLabels(CATEGORY_TREE, nextPath);
+                const displayLabel = getDisplayCategoryLabel(
+                  node.label,
+                  nextPathLabels,
+                  nextPath,
+                );
+
+                return (
+                  <TouchableOpacity
+                    key={node.key}
+                    activeOpacity={0.88}
+                    onPress={() => onPressCategoryNode(node)}
+                    style={S.optionRow}
+                  >
+                    <Text style={S.optionEmoji}>
+                      {getCategoryEmoji(node.label, nextPathLabels, nextPath)}
+                    </Text>
+
+                    <View style={S.optionTextWrap}>
+                      <Text style={S.optionText}>{displayLabel}</Text>
+                    </View>
+
+                    <Text style={S.optionChevron}>›</Text>
+                  </TouchableOpacity>
+                );
+              })
+            ) : (
+              <View style={S.emptyState}>
+                <Text style={S.emptyStateTitle}>Nivel final atins</Text>
+                <Text style={S.emptyStateText}>
+                  Categoria selectată este gata.
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={resetCategorySelection}
+              style={S.resetBtn}
+            >
+              <Text style={S.resetBtnText}>Resetează selecția</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!activeAttribute}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={closeAttributePicker}
+      >
+        <View style={S.fullscreenModal}>
+          <HeaderBackButton
+            onPress={closeAttributePicker}
+            top={insets.top + 10}
+          />
+
+          <ScrollView
+            contentContainerStyle={[
+              S.fullscreenContent,
+              {
+                paddingTop: insets.top + 10 + HEADER_BACK_SIZE + 18,
+                paddingBottom: Math.max(insets.bottom, 16) + 24,
+              },
+            ]}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={S.fullscreenTitle}>
+              {activeAttribute?.label || "Selectează"}
+            </Text>
+
+            {activeAttributeOptions.map((option) => {
+              const selected = activeAttributeValue === option.value;
+
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  activeOpacity={0.88}
+                  onPress={() =>
+                    selectAttributeOption(activeAttribute.key, option.value)
+                  }
+                  style={S.optionRow}
+                >
+                  <View style={S.optionTextWrap}>
+                    <Text style={S.optionText}>{option.label}</Text>
+                  </View>
+                  <Text style={[S.optionChevron, selected && S.optionSelected]}>
+                    {selected ? "✓" : "›"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -443,6 +993,8 @@ function makeStyles(tokens) {
   const primarySoft = pickTok(tokens, "primarySoft", "rgba(37,99,235,0.10)");
   const danger = pickTok(tokens, "danger", "#EF4444");
   const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
+  const cardMuted = pickTok(tokens, "cardMuted", primarySoft);
+  const dim = pickTok(tokens, "dim", "rgba(0,0,0,0.55)");
 
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: bg },
@@ -471,7 +1023,70 @@ function makeStyles(tokens) {
       marginBottom: 12,
     },
 
-    textarea: { minHeight: 110, textAlignVertical: "top" },
+    textarea: {
+      minHeight: 110,
+      textAlignVertical: "top",
+    },
+
+    attrBlock: {
+      marginBottom: 12,
+    },
+
+    attrLabel: {
+      color: text,
+      fontSize: 14,
+      fontWeight: "800",
+      marginBottom: 8,
+      paddingHorizontal: 2,
+    },
+
+    selectInput: {
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 14,
+      backgroundColor: card,
+    },
+
+    selectInputContent: {
+      minHeight: 56,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+
+    selectInputValue: {
+      flex: 1,
+      fontSize: 16,
+      fontWeight: "800",
+      color: text,
+    },
+
+    selectInputPlaceholder: {
+      color: muted,
+      fontWeight: "700",
+    },
+
+    selectChevron: {
+      fontSize: 26,
+      lineHeight: 26,
+      color: muted,
+      marginTop: -1,
+    },
+
+    dynamicSection: {
+      marginBottom: 6,
+    },
+
+    dynamicSectionTitle: {
+      fontSize: 17,
+      fontWeight: "900",
+      color: text,
+      marginBottom: 10,
+      marginTop: 2,
+    },
 
     pickBtn: {
       height: 52,
@@ -484,7 +1099,11 @@ function makeStyles(tokens) {
       marginTop: 6,
     },
 
-    pickText: { fontWeight: "900", fontSize: 16, color: primary },
+    pickText: {
+      fontWeight: "900",
+      fontSize: 16,
+      color: primary,
+    },
 
     imagesRow: {
       flexDirection: "row",
@@ -499,12 +1118,15 @@ function makeStyles(tokens) {
       borderRadius: 14,
       overflow: "hidden",
       position: "relative",
-      backgroundColor: "rgba(0,0,0,0.06)",
+      backgroundColor: cardMuted,
       borderWidth: 1,
       borderColor: border,
     },
 
-    thumb: { width: "100%", height: "100%" },
+    thumb: {
+      width: "100%",
+      height: "100%",
+    },
 
     removeBtn: {
       position: "absolute",
@@ -513,19 +1135,24 @@ function makeStyles(tokens) {
       width: 28,
       height: 28,
       borderRadius: 14,
-      backgroundColor: "rgba(0,0,0,0.55)",
+      backgroundColor: dim,
       alignItems: "center",
       justifyContent: "center",
     },
 
     removeText: {
-      color: "#fff",
+      color: onPrimary,
       fontSize: 18,
       fontWeight: "900",
       marginTop: -1,
     },
 
-    err: { marginTop: 10, color: danger, fontWeight: "900", fontSize: 14 },
+    err: {
+      marginTop: 10,
+      color: danger,
+      fontWeight: "900",
+      fontSize: 14,
+    },
 
     pubBtn: {
       marginTop: 14,
@@ -536,7 +1163,132 @@ function makeStyles(tokens) {
       justifyContent: "center",
     },
 
-    onPrimary: { color: onPrimary },
-    pubText: { color: onPrimary, fontWeight: "900", fontSize: 18 },
+    pubText: {
+      color: onPrimary,
+      fontWeight: "900",
+      fontSize: 18,
+    },
+
+    fullscreenModal: {
+      flex: 1,
+      backgroundColor: bg,
+    },
+
+    fullscreenContent: {
+      paddingHorizontal: 16,
+      backgroundColor: bg,
+    },
+
+    fullscreenTitle: {
+      fontSize: 28,
+      fontWeight: "900",
+      textAlign: "center",
+      marginBottom: 16,
+      color: text,
+    },
+
+    searchInput: {
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 13,
+      fontSize: 16,
+      fontWeight: "700",
+      backgroundColor: card,
+      color: text,
+      marginBottom: 12,
+    },
+
+    optionRow: {
+      minHeight: 76,
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 18,
+      backgroundColor: card,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      paddingHorizontal: 14,
+      marginBottom: 10,
+    },
+
+    optionEmoji: {
+      fontSize: 24,
+      lineHeight: 28,
+      width: 32,
+      textAlign: "center",
+    },
+
+    optionTextWrap: {
+      flex: 1,
+      paddingVertical: 14,
+      justifyContent: "center",
+    },
+
+    optionText: {
+      color: text,
+      fontSize: 17,
+      lineHeight: 22,
+      fontWeight: "800",
+    },
+
+    optionSubtext: {
+      color: muted,
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: "700",
+      marginTop: 4,
+    },
+
+    optionChevron: {
+      fontSize: 28,
+      lineHeight: 28,
+      color: muted,
+      marginTop: -2,
+    },
+
+    optionSelected: {
+      color: primary,
+      fontSize: 22,
+      fontWeight: "900",
+    },
+
+    emptyState: {
+      paddingTop: 26,
+      paddingHorizontal: 4,
+    },
+
+    emptyStateTitle: {
+      color: text,
+      fontSize: 18,
+      fontWeight: "900",
+      marginBottom: 8,
+    },
+
+    emptyStateText: {
+      color: muted,
+      fontSize: 15,
+      lineHeight: 22,
+      fontWeight: "700",
+    },
+
+    resetBtn: {
+      marginTop: 10,
+      height: 54,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: border,
+      backgroundColor: card,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    resetBtnText: {
+      color: primary,
+      fontSize: 16,
+      fontWeight: "900",
+    },
   });
 }

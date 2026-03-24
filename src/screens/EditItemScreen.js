@@ -1,14 +1,10 @@
 // src/screens/EditItemScreen.js
 // COMPONENTĂ: EditItemScreen
 // MODIFICARE:
-// - back semantic: se întoarce explicit în ItemDetailsScreen
-// - nu mai folosește istoricul stack-ului pentru back
-// - păstrează HeaderBackButton reutilizabil
-// - FIX: navigarea după save/delete merge spre TabsRoot -> Home, nu direct către Home
-// - FIX: la delete se încearcă și ștergerea imaginilor din Supabase Storage
-// - FIX: la save, dacă au fost scoase poze din anunț, acestea sunt șterse și din Storage
-// - removeAt rămâne doar local până la salvare
-// - restul logicii rămâne neschimbată
+// - după delete nu mai mergem în Home
+// - revenim în MyItemsScreen cu params: deletedItemId, deletedAt, deletedSuccessMessage
+// - MyItemsScreen va afișa popup-ul de succes și va scoate anunțul local din listă
+// - păstrat delete-ul strict din Supabase Storage și curățarea favorites
 
 import React, {
   useCallback,
@@ -37,6 +33,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import { updateItem } from "../services/itemsService";
+import { removeFavoritesByItem } from "../services/favoritesService";
 import { ThemeContext } from "../theme/ThemeProvider";
 import HeaderBackButton, {
   HEADER_BACK_SIZE,
@@ -75,32 +72,33 @@ function extractStoragePathFromUrl(url, bucket = STORAGE_BUCKET) {
     !value.startsWith("https://") &&
     !value.includes("/storage/v1/object/")
   ) {
-    return value;
+    return value.split("?")[0] || null;
   }
 
   try {
-    const u = new URL(value);
-    const pathname = decodeURIComponent(u.pathname);
+    const decoded = decodeURIComponent(value);
+    const markers = [
+      `/storage/v1/object/public/${bucket}/`,
+      `/storage/v1/object/sign/${bucket}/`,
+      `/storage/v1/object/render/image/public/${bucket}/`,
+      `/object/public/${bucket}/`,
+      `/object/sign/${bucket}/`,
+    ];
 
-    const publicMarker = `/storage/v1/object/public/${bucket}/`;
-    const signMarker = `/storage/v1/object/sign/${bucket}/`;
-    const renderMarker = `/storage/v1/object/render/image/public/${bucket}/`;
-
-    if (pathname.includes(publicMarker)) {
-      return pathname.split(publicMarker)[1] || null;
+    for (const marker of markers) {
+      const idx = decoded.indexOf(marker);
+      if (idx >= 0) {
+        return decoded.slice(idx + marker.length).split("?")[0] || null;
+      }
     }
 
-    if (pathname.includes(signMarker)) {
-      return pathname.split(signMarker)[1] || null;
-    }
+    const urlObj = new URL(value);
+    const pathname = decodeURIComponent(urlObj.pathname);
+    const bucketMarker = `/${bucket}/`;
+    const idx = pathname.indexOf(bucketMarker);
 
-    if (pathname.includes(renderMarker)) {
-      return pathname.split(renderMarker)[1] || null;
-    }
-
-    const idx = pathname.indexOf(`/${bucket}/`);
     if (idx >= 0) {
-      return pathname.slice(idx + bucket.length + 2) || null;
+      return pathname.slice(idx + bucketMarker.length) || null;
     }
 
     return null;
@@ -111,10 +109,12 @@ function extractStoragePathFromUrl(url, bucket = STORAGE_BUCKET) {
 
 function getStoragePathsFromImages(images, bucket = STORAGE_BUCKET) {
   const arr = Array.isArray(images) ? images : [];
+
   const paths = arr
     .map((entry) => {
-      if (typeof entry === "string")
+      if (typeof entry === "string") {
         return extractStoragePathFromUrl(entry, bucket);
+      }
       if (entry?.url) return extractStoragePathFromUrl(entry.url, bucket);
       if (entry?.uri) return extractStoragePathFromUrl(entry.uri, bucket);
       return null;
@@ -124,24 +124,56 @@ function getStoragePathsFromImages(images, bucket = STORAGE_BUCKET) {
   return Array.from(new Set(paths));
 }
 
+async function removeStoragePathsStrict(paths, bucket = STORAGE_BUCKET) {
+  const cleanPaths = Array.from(
+    new Set((Array.isArray(paths) ? paths : []).filter(Boolean)),
+  );
+
+  if (!cleanPaths.length) return true;
+
+  const { error } = await supabase.storage.from(bucket).remove(cleanPaths);
+
+  if (!error) return true;
+
+  const failures = [];
+
+  for (const path of cleanPaths) {
+    const { error: singleError } = await supabase.storage
+      .from(bucket)
+      .remove([path]);
+
+    if (singleError) {
+      failures.push({ path, error: singleError });
+    }
+  }
+
+  if (failures.length > 0) {
+    const first = failures[0]?.error;
+    throw new Error(
+      first?.message ||
+        "Nu am putut șterge una sau mai multe imagini din Storage.",
+    );
+  }
+
+  return true;
+}
+
 async function deleteItemWithImages(item, bucket = STORAGE_BUCKET) {
   if (!item?.id) throw new Error("Lipsește id-ul anunțului.");
 
   const paths = getStoragePathsFromImages(item?.images, bucket);
 
   if (paths.length > 0) {
-    const { error: storageErr } = await supabase.storage
-      .from(bucket)
-      .remove(paths);
-    if (storageErr) {
-      console.log("⚠️ storage remove warning:", storageErr);
-    }
+    await removeStoragePathsStrict(paths, bucket);
   }
+
+  await removeFavoritesByItem(String(item.id));
 
   const { error: dbErr } = await supabase
     .from("items")
     .delete()
     .eq("id", item.id);
+
   if (dbErr) throw dbErr;
 }
 
@@ -169,6 +201,7 @@ async function normalizeToJpegMobile(uri, meta) {
   if (!result?.uri) {
     throw new Error("Nu am putut normaliza poza (JPEG/resize).");
   }
+
   return result.uri;
 }
 
@@ -181,6 +214,7 @@ async function uploadImageToSupabase({ uri, userId, meta }) {
   if (Platform.OS === "web") {
     const res = await fetch(uri);
     if (!res.ok) throw new Error("Nu pot citi poza (fetch a eșuat).");
+
     const blob = await res.blob();
 
     const { error: upErr } = await supabase.storage
@@ -192,6 +226,7 @@ async function uploadImageToSupabase({ uri, userId, meta }) {
     const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
     const publicUrl = data?.publicUrl || "";
     if (!publicUrl) throw new Error("Nu am primit publicUrl pentru poză.");
+
     return publicUrl;
   }
 
@@ -216,6 +251,7 @@ async function uploadImageToSupabase({ uri, userId, meta }) {
   const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
   const publicUrl = data?.publicUrl || "";
   if (!publicUrl) throw new Error("Nu am primit publicUrl pentru poză.");
+
   return publicUrl;
 }
 
@@ -252,6 +288,7 @@ export default function EditItemScreen({ navigation, route }) {
   const userId = session?.user?.id || null;
 
   const S = useMemo(() => makeStyles(tokens), [tokens]);
+  const onPrimaryColor = pickTok(tokens, "onPrimary", "#FFFFFF");
 
   useEffect(() => {
     let sub;
@@ -280,15 +317,12 @@ export default function EditItemScreen({ navigation, route }) {
       return;
     }
 
-    navigation.navigate("TabsRoot", { screen: ROUTES.Home });
+    navigation.navigate(ROUTES.MyItems || "MyItems");
   }, [navigation, passedItem]);
 
-  const goHomeWithUpdate = useCallback(
+  const goToMyItemsWithUpdate = useCallback(
     (params) => {
-      navigation.navigate("TabsRoot", {
-        screen: ROUTES.Home,
-        params,
-      });
+      navigation.navigate(ROUTES.MyItems || "MyItems", params);
     },
     [navigation],
   );
@@ -334,6 +368,7 @@ export default function EditItemScreen({ navigation, route }) {
     setUploading(true);
     try {
       const newUrls = [];
+
       for (const a of assets) {
         if (!a?.uri) continue;
 
@@ -342,6 +377,7 @@ export default function EditItemScreen({ navigation, route }) {
           userId,
           meta: { width: a?.width, height: a?.height },
         });
+
         newUrls.push(url);
       }
 
@@ -398,6 +434,7 @@ export default function EditItemScreen({ navigation, route }) {
       .trim()
       .replace(",", ".");
     const priceNum = p === "" ? null : Number(p);
+
     if (p !== "" && Number.isNaN(priceNum)) {
       Alert.alert("Preț", "Prețul trebuie să fie număr.");
       return;
@@ -410,7 +447,7 @@ export default function EditItemScreen({ navigation, route }) {
         description: String(description || ""),
         price: priceNum,
         category: String(category || ""),
-        images: images,
+        images,
       };
 
       const removedImages = initialImages.filter(
@@ -424,13 +461,7 @@ export default function EditItemScreen({ navigation, route }) {
       const updated = await updateItem(itemId, payload);
 
       if (removedPaths.length > 0) {
-        const { error: storageErr } = await supabase.storage
-          .from(STORAGE_BUCKET)
-          .remove(removedPaths);
-
-        if (storageErr) {
-          console.log("⚠️ remove deleted edit images warning:", storageErr);
-        }
+        await removeStoragePathsStrict(removedPaths, STORAGE_BUCKET);
       }
 
       const updatedRow =
@@ -442,12 +473,17 @@ export default function EditItemScreen({ navigation, route }) {
               id: passedItem?.id ?? itemId,
             };
 
-      Alert.alert("Salvat", "Anunțul a fost actualizat.");
-
-      goHomeWithUpdate({
-        updatedItem: updatedRow,
-        updatedAt: Date.now(),
-      });
+      Alert.alert("Salvat", "Anunțul a fost actualizat.", [
+        {
+          text: "OK",
+          onPress: () => {
+            goToMyItemsWithUpdate({
+              updatedItem: updatedRow,
+              updatedAt: Date.now(),
+            });
+          },
+        },
+      ]);
     } catch (e) {
       console.log("❌ updateItem error:", e);
       Alert.alert("Eroare", e?.message || "Nu am putut salva.");
@@ -463,7 +499,7 @@ export default function EditItemScreen({ navigation, route }) {
     images,
     initialImages,
     passedItem,
-    goHomeWithUpdate,
+    goToMyItemsWithUpdate,
   ]);
 
   const onDeleteItem = useCallback(() => {
@@ -487,11 +523,10 @@ export default function EditItemScreen({ navigation, route }) {
               STORAGE_BUCKET,
             );
 
-            Alert.alert("Șters", "Anunțul a fost șters.");
-
-            goHomeWithUpdate({
+            goToMyItemsWithUpdate({
               deletedItemId: String(itemId),
               deletedAt: Date.now(),
+              deletedSuccessMessage: "Anunțul a fost șters.",
             });
           } catch (e) {
             console.log("❌ deleteItem error:", e);
@@ -502,7 +537,7 @@ export default function EditItemScreen({ navigation, route }) {
         },
       },
     ]);
-  }, [itemId, passedItem, images, goHomeWithUpdate]);
+  }, [itemId, passedItem, images, goToMyItemsWithUpdate]);
 
   if (!passedItem) {
     return (
@@ -571,7 +606,7 @@ export default function EditItemScreen({ navigation, route }) {
           disabled={uploading}
         >
           {uploading ? (
-            <ActivityIndicator />
+            <ActivityIndicator color={onPrimaryColor} />
           ) : (
             <Text style={S.addPhotosText}>
               Adaugă poze ({images.length}/{MAX_IMAGES})
@@ -625,7 +660,7 @@ export default function EditItemScreen({ navigation, route }) {
           disabled={saving}
         >
           {saving ? (
-            <ActivityIndicator color={S.onPrimary.color} />
+            <ActivityIndicator color={onPrimaryColor} />
           ) : (
             <Text style={S.primaryText}>Salvează</Text>
           )}
@@ -675,6 +710,7 @@ function makeStyles(tokens) {
       marginBottom: 14,
       backgroundColor: card,
     },
+
     textArea: {
       height: 120,
       paddingTop: 14,
@@ -692,7 +728,12 @@ function makeStyles(tokens) {
       borderWidth: 1,
       borderColor: border,
     },
-    addPhotosText: { fontSize: 18, fontWeight: "900", color: primary },
+
+    addPhotosText: {
+      fontSize: 18,
+      fontWeight: "900",
+      color: primary,
+    },
 
     grid: {
       flexDirection: "row",
@@ -700,6 +741,7 @@ function makeStyles(tokens) {
       gap: 12,
       marginBottom: 18,
     },
+
     tile: {
       width: "31%",
       minWidth: 110,
@@ -709,7 +751,12 @@ function makeStyles(tokens) {
       borderColor: border,
       backgroundColor: card,
     },
-    tileImg: { width: "100%", height: 120, backgroundColor: bg },
+
+    tileImg: {
+      width: "100%",
+      height: 120,
+      backgroundColor: bg,
+    },
 
     tileActions: {
       flexDirection: "row",
@@ -720,6 +767,7 @@ function makeStyles(tokens) {
       borderTopWidth: 1,
       borderTopColor: border,
     },
+
     actionBtn: {
       flex: 1,
       height: 38,
@@ -728,9 +776,15 @@ function makeStyles(tokens) {
       alignItems: "center",
       justifyContent: "center",
     },
+
     actionDisabled: { opacity: 0.35 },
     actionDelete: { backgroundColor: danger },
-    actionText: { color: onPrimary, fontSize: 18, fontWeight: "900" },
+
+    actionText: {
+      color: onPrimary,
+      fontSize: 18,
+      fontWeight: "900",
+    },
 
     primaryBtn: {
       height: 58,
@@ -740,8 +794,12 @@ function makeStyles(tokens) {
       justifyContent: "center",
       marginTop: 6,
     },
-    onPrimary: { color: onPrimary },
-    primaryText: { color: onPrimary, fontWeight: "900", fontSize: 20 },
+
+    primaryText: {
+      color: onPrimary,
+      fontWeight: "900",
+      fontSize: 20,
+    },
 
     deleteBtn: {
       height: 58,
@@ -751,7 +809,12 @@ function makeStyles(tokens) {
       justifyContent: "center",
       marginTop: 12,
     },
-    deleteText: { color: onPrimary, fontWeight: "900", fontSize: 18 },
+
+    deleteText: {
+      color: onPrimary,
+      fontWeight: "900",
+      fontSize: 18,
+    },
 
     center: {
       flex: 1,
@@ -759,7 +822,13 @@ function makeStyles(tokens) {
       justifyContent: "center",
       padding: 16,
     },
-    h1: { fontSize: 18, fontWeight: "900", color: text },
+
+    h1: {
+      fontSize: 18,
+      fontWeight: "900",
+      color: text,
+    },
+
     mutedText: {
       marginTop: 8,
       color: muted,
