@@ -1,12 +1,12 @@
 // src/screens/AddItemScreen.js
 // Ce este: ecranul de publicare produs pentru ModaGo.
 // Ce s-a modificat:
-// - am mutat logica imaginilor de categorie într-un fișier separat:
-//   src/constants/categoryVisuals.js
-// - selectorul de categorie afișează imagini pentru path-urile care au asset dedicat
-// - pentru restul categoriilor rămâne fallback pe emoji
-// - structura este pregătită pentru a adăuga ușor imagini și la subcategorii
-// - nu am stricat flow-ul actual și nu am refactorizat inutil restul ecranului
+// - fix pentru eroarea `pathKey doesn't exist` din CategoryLeadingVisual
+// - am păstrat logica cu imaginile din src/constants/categoryVisuals.js
+// - am adăugat mărimi separate pentru anumite categorii vizuale:
+//   • women>women-clothing
+//   • men>men-shoes
+// - nu am schimbat flow-ul de publicare sau logica de categorii/atribute
 
 import React, {
   useCallback,
@@ -202,6 +202,7 @@ function CategoryLeadingVisual({
   const pathKey = Array.isArray(nextPath) ? nextPath.join(">") : "";
 
   const isWomenClothing = pathKey === "women>women-clothing";
+  const isMenShoes = pathKey === "men>men-shoes";
 
   if (imageSource) {
     return (
@@ -209,6 +210,7 @@ function CategoryLeadingVisual({
         style={[
           stylesObj.optionImageWrap,
           isWomenClothing && stylesObj.optionImageWrapLarge,
+          isMenShoes && stylesObj.optionImageWrapMenShoes,
         ]}
       >
         <Image
@@ -216,6 +218,7 @@ function CategoryLeadingVisual({
           style={[
             stylesObj.optionImage,
             isWomenClothing && stylesObj.optionImageLarge,
+            isMenShoes && stylesObj.optionImageMenShoes,
           ]}
           resizeMode="contain"
         />
@@ -1254,7 +1257,7 @@ function makeStyles(tokens) {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      gap: 16,
+      gap: 14,
       paddingHorizontal: 16,
       marginBottom: 10,
     },
@@ -1276,16 +1279,26 @@ function makeStyles(tokens) {
     },
 
     optionImage: {
-      width: 60,
-      height: 60,
+      width: 65,
+      height: 65,
     },
 
     optionImageWrapLarge: {
+      width: 74,
+      height: 74,
+    },
+
+    optionImageLarge: {
       width: 70,
       height: 70,
     },
 
-    optionImageLarge: {
+    optionImageWrapMenShoes: {
+      width: 74,
+      height: 74,
+    },
+
+    optionImageMenShoes: {
       width: 70,
       height: 70,
     },
