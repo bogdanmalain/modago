@@ -1,8 +1,9 @@
 // src/constants/categoryTree.js
 // Ce este: sursa unică pentru categoriile de publicare ModaGo.
-// Ce s-a modificat: am refăcut varianta completă și curată a arborelui de categorii,
-// păstrând helper-ele necesare pentru AddItem, inclusiv exportul corect pentru
-// getNodesByPath, getNodeByPath, getPathLabels, getPathLabel, isLeafNode și findPathByQuery.
+// Ce s-a modificat: am păstrat API-ul vechi care funcționa deja în aplicație
+// (getNodesByPath, getNodeByPath, getPathLabels, getPathLabel, isLeafNode, findPathByQuery),
+// dar am curățat arborele pentru lansarea fashion-only: Femei și Bărbați, fără electronice
+// și fără alte categorii în afara zonei fashion.
 
 export const CATEGORY_TREE = [
   {
@@ -15,10 +16,17 @@ export const CATEGORY_TREE = [
         children: [
           { key: "women-dresses", label: "Rochii" },
           { key: "women-tops", label: "Topuri și tricouri" },
+          { key: "women-shirts", label: "Cămăși și bluze" },
+          { key: "women-knitwear", label: "Pulovere și hanorace" },
+          { key: "women-jackets", label: "Geci și paltoane" },
           { key: "women-jeans", label: "Blugi" },
           { key: "women-pants", label: "Pantaloni" },
-          { key: "women-jackets", label: "Jachete și paltoane" },
-          { key: "women-sportswear", label: "Îmbrăcăminte sport" },
+          { key: "women-skirts", label: "Fuste" },
+          { key: "women-jumpsuits", label: "Salopete" },
+          { key: "women-sets", label: "Costume și seturi" },
+          { key: "women-lingerie", label: "Lenjerie și pijamale" },
+          { key: "women-swimwear", label: "Costume de baie" },
+          { key: "women-sportswear", label: "Haine sport" },
         ],
       },
       {
@@ -27,15 +35,19 @@ export const CATEGORY_TREE = [
         children: [
           { key: "women-sneakers", label: "Sneakers" },
           { key: "women-heels", label: "Pantofi" },
-          { key: "women-boots", label: "Cizme și botine" },
           { key: "women-sandals", label: "Sandale" },
+          { key: "women-boots", label: "Cizme și botine" },
+          { key: "women-slippers", label: "Papuci" },
+          { key: "women-sport-shoes", label: "Încălțăminte sport" },
         ],
       },
       {
         key: "women-bags",
         label: "Genți",
         children: [
-          { key: "women-handbags", label: "Genți de mână" },
+          { key: "women-shoulder-bags", label: "Genți de umăr" },
+          { key: "women-hand-bags", label: "Genți de mână" },
+          { key: "women-clutch-bags", label: "Clutch" },
           { key: "women-backpacks", label: "Rucsacuri" },
           { key: "women-wallets", label: "Portofele" },
         ],
@@ -44,10 +56,12 @@ export const CATEGORY_TREE = [
         key: "women-accessories",
         label: "Accesorii",
         children: [
-          { key: "women-jewelry", label: "Bijuterii" },
-          { key: "women-watches", label: "Ceasuri" },
           { key: "women-belts", label: "Curele" },
-          { key: "women-sunglasses", label: "Ochelari de soare" },
+          { key: "women-scarves", label: "Eșarfe și fulare" },
+          { key: "women-hats", label: "Pălării și șepci" },
+          { key: "women-glasses", label: "Ochelari" },
+          { key: "women-jewelry", label: "Bijuterii" },
+          { key: "women-watches", label: "Ceasuri fashion" },
         ],
       },
     ],
@@ -62,10 +76,14 @@ export const CATEGORY_TREE = [
         children: [
           { key: "men-tshirts", label: "Tricouri" },
           { key: "men-shirts", label: "Cămăși" },
+          { key: "men-knitwear", label: "Pulovere și hanorace" },
+          { key: "men-jackets", label: "Geci și paltoane" },
           { key: "men-jeans", label: "Blugi" },
           { key: "men-pants", label: "Pantaloni" },
-          { key: "men-jackets", label: "Jachete și paltoane" },
-          { key: "men-sportswear", label: "Îmbrăcăminte sport" },
+          { key: "men-shorts", label: "Pantaloni scurți" },
+          { key: "men-suits", label: "Costume" },
+          { key: "men-sportswear", label: "Haine sport" },
+          { key: "men-lingerie", label: "Lenjerie și pijamale" },
         ],
       },
       {
@@ -73,132 +91,25 @@ export const CATEGORY_TREE = [
         label: "Încălțăminte",
         children: [
           { key: "men-sneakers", label: "Sneakers" },
-          { key: "men-shoes-leaf", label: "Pantofi" },
-          { key: "men-boots", label: "Ghete și bocanci" },
-          { key: "men-sandals", label: "Sandale" },
+          { key: "men-shoes-classic", label: "Pantofi" },
+          { key: "men-boots", label: "Cizme" },
+          { key: "men-slippers", label: "Papuci" },
+          { key: "men-sport-shoes", label: "Încălțăminte sport" },
         ],
       },
       {
         key: "men-accessories",
         label: "Accesorii",
         children: [
-          { key: "men-watches", label: "Ceasuri" },
-          { key: "men-wallets", label: "Portofele" },
           { key: "men-belts", label: "Curele" },
-          { key: "men-bags", label: "Genți și borsete" },
+          { key: "men-wallets", label: "Portofele" },
+          { key: "men-backpacks", label: "Rucsacuri" },
+          { key: "men-hats", label: "Șepci și pălării" },
+          { key: "men-glasses", label: "Ochelari" },
+          { key: "men-watches", label: "Ceasuri fashion" },
+          { key: "men-ties", label: "Cravate" },
         ],
       },
-    ],
-  },
-  {
-    key: "kids",
-    label: "Copii",
-    children: [
-      {
-        key: "kids-clothing",
-        label: "Îmbrăcăminte",
-        children: [
-          { key: "kids-babies", label: "Bebeluși" },
-          { key: "kids-girls", label: "Fete" },
-          { key: "kids-boys", label: "Băieți" },
-        ],
-      },
-      {
-        key: "kids-shoes",
-        label: "Încălțăminte",
-        children: [
-          { key: "kids-sneakers", label: "Sneakers" },
-          { key: "kids-boots", label: "Ghete" },
-          { key: "kids-sandals", label: "Sandale" },
-        ],
-      },
-      {
-        key: "kids-accessories",
-        label: "Accesorii și jucării",
-        children: [
-          { key: "kids-toys", label: "Jucării" },
-          { key: "kids-school", label: "Școală și grădiniță" },
-          { key: "kids-bags", label: "Genți și rucsacuri" },
-        ],
-      },
-    ],
-  },
-  {
-    key: "home",
-    label: "Casă",
-    children: [
-      { key: "home-decor", label: "Decorațiuni" },
-      { key: "home-textiles", label: "Textile pentru casă" },
-      { key: "home-kitchen", label: "Bucătărie și servire" },
-      { key: "home-furniture", label: "Mobilier mic" },
-      { key: "home-lighting", label: "Iluminat" },
-    ],
-  },
-  {
-    key: "electronics",
-    label: "Electronice",
-    children: [
-      { key: "electronics-games", label: "Jocuri video și console" },
-      { key: "electronics-computers", label: "Calculatoare și accesorii" },
-      {
-        key: "electronics-mobile",
-        label: "Telefoane mobile și comunicare",
-        children: [
-          { key: "electronics-mobile-phones", label: "Telefoane mobile" },
-          {
-            key: "electronics-mobile-parts",
-            label: "Piese și accesorii pentru telefoane mobile",
-          },
-          { key: "electronics-landline", label: "Telefoane fixe" },
-          { key: "electronics-fax", label: "Faxuri" },
-          { key: "electronics-radio", label: "Comunicații radio" },
-          { key: "electronics-mobile-demo", label: "Telefoane mobile demo" },
-        ],
-      },
-      { key: "electronics-audio", label: "Audio, căști și hi-fi" },
-      { key: "electronics-camera", label: "Camere foto și accesorii" },
-      { key: "electronics-tablets", label: "Tablete, e-readere și accesorii" },
-      { key: "electronics-tv", label: "TV și home cinema" },
-      {
-        key: "electronics-beauty",
-        label: "Electronice pentru frumusețe și îngrijire personală",
-      },
-      { key: "electronics-wearables", label: "Portabile" },
-      {
-        key: "electronics-other",
-        label: "Alte dispozitive și accesorii",
-      },
-    ],
-  },
-  {
-    key: "entertainment",
-    label: "Divertisment",
-    children: [
-      { key: "ent-books", label: "Cărți" },
-      { key: "ent-music", label: "Muzică" },
-      { key: "ent-movies", label: "Filme și seriale" },
-      { key: "ent-boardgames", label: "Board games" },
-    ],
-  },
-  {
-    key: "hobby",
-    label: "Hobbyuri și colecții",
-    children: [
-      { key: "hobby-collectibles", label: "Colecții" },
-      { key: "hobby-diy", label: "DIY și craft" },
-      { key: "hobby-art", label: "Artă" },
-      { key: "hobby-models", label: "Modele și figurine" },
-    ],
-  },
-  {
-    key: "sports",
-    label: "Sporturi",
-    children: [
-      { key: "sports-fitness", label: "Fitness" },
-      { key: "sports-running", label: "Alergare" },
-      { key: "sports-cycling", label: "Ciclism" },
-      { key: "sports-football", label: "Fotbal" },
-      { key: "sports-outdoor", label: "Outdoor" },
     ],
   },
 ];
@@ -290,4 +201,38 @@ export function findPathByQuery(tree, query = "") {
   });
 
   return matches;
+}
+
+/**
+ * Helpers suplimentari, fără să stricăm API-ul vechi.
+ * Sunt utili pentru UI unde vrem doar categoria principală.
+ */
+
+export function getPrimaryCategoryLabel(tree, pathKeys = []) {
+  return getPathLabels(tree, pathKeys)[0] || "";
+}
+
+export function getLastCategoryLabel(tree, pathKeys = []) {
+  const labels = getPathLabels(tree, pathKeys);
+  return labels[labels.length - 1] || "";
+}
+
+export function flattenCategoryTree(tree = CATEGORY_TREE) {
+  const flat = [];
+
+  walk(tree, (node, parents) => {
+    flat.push({
+      key: node.key,
+      label: node.label,
+      pathKeys: parents.map((item) => item.key),
+      pathLabel: parents.map((item) => item.label).join(" > "),
+      isLeaf: !Array.isArray(node.children) || node.children.length === 0,
+    });
+  });
+
+  return flat;
+}
+
+export function getLeafCategories(tree = CATEGORY_TREE) {
+  return flattenCategoryTree(tree).filter((item) => item.isLeaf);
 }
