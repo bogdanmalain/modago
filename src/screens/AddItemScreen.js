@@ -1,12 +1,10 @@
 // src/screens/AddItemScreen.js
 // Ce este: ecranul de publicare produs pentru ModaGo.
 // Ce s-a modificat:
-// - fix pentru eroarea `pathKey doesn't exist` din CategoryLeadingVisual
-// - am păstrat logica cu imaginile din src/constants/categoryVisuals.js
-// - am adăugat mărimi separate pentru anumite categorii vizuale:
-//   • women>women-clothing
-//   • men>men-shoes
-// - nu am schimbat flow-ul de publicare sau logica de categorii/atribute
+// - am aliniat mai bine iconurile de categorie, astfel încât toate să stea pe aceeași coloană vizuală
+// - am introdus un slot fix pentru icon în CategoryLeadingVisual, ca textul să înceapă din același loc
+// - am păstrat suportul pentru imaginile din categoryVisuals și logica actuală de publicare/upload
+// - nu am schimbat flow-ul de publicare, atributele sau structura categoriilor
 
 import React, {
   useCallback,
@@ -206,30 +204,34 @@ function CategoryLeadingVisual({
 
   if (imageSource) {
     return (
-      <View
-        style={[
-          stylesObj.optionImageWrap,
-          isWomenClothing && stylesObj.optionImageWrapLarge,
-          isMenShoes && stylesObj.optionImageWrapMenShoes,
-        ]}
-      >
-        <Image
-          source={imageSource}
+      <View style={stylesObj.optionLeadingSlot}>
+        <View
           style={[
-            stylesObj.optionImage,
-            isWomenClothing && stylesObj.optionImageLarge,
-            isMenShoes && stylesObj.optionImageMenShoes,
+            stylesObj.optionImageWrap,
+            isWomenClothing && stylesObj.optionImageWrapLarge,
+            isMenShoes && stylesObj.optionImageWrapMenShoes,
           ]}
-          resizeMode="contain"
-        />
+        >
+          <Image
+            source={imageSource}
+            style={[
+              stylesObj.optionImage,
+              isWomenClothing && stylesObj.optionImageLarge,
+              isMenShoes && stylesObj.optionImageMenShoes,
+            ]}
+            resizeMode="contain"
+          />
+        </View>
       </View>
     );
   }
 
   return (
-    <Text style={stylesObj.optionEmoji}>
-      {getCategoryEmoji(label, pathLabels, nextPath)}
-    </Text>
+    <View style={stylesObj.optionLeadingSlot}>
+      <Text style={stylesObj.optionEmoji}>
+        {getCategoryEmoji(label, pathLabels, nextPath)}
+      </Text>
+    </View>
   );
 }
 
@@ -1257,9 +1259,16 @@ function makeStyles(tokens) {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      gap: 14,
+      gap: 6,
       paddingHorizontal: 16,
       marginBottom: 10,
+    },
+
+    optionLeadingSlot: {
+      width: 86,
+      minWidth: 86,
+      alignItems: "center",
+      justifyContent: "center",
     },
 
     optionEmoji: {
@@ -1270,37 +1279,37 @@ function makeStyles(tokens) {
     },
 
     optionImageWrap: {
-      width: 65,
-      height: 65,
+      width: 58,
+      height: 58,
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
-      borderRadius: 16,
+      borderRadius: 14,
     },
 
     optionImage: {
-      width: 65,
-      height: 65,
+      width: 58,
+      height: 58,
     },
 
     optionImageWrapLarge: {
-      width: 74,
-      height: 74,
+      width: 66,
+      height: 66,
     },
 
     optionImageLarge: {
-      width: 70,
-      height: 70,
+      width: 66,
+      height: 66,
     },
 
     optionImageWrapMenShoes: {
-      width: 74,
-      height: 74,
+      width: 68,
+      height: 68,
     },
 
     optionImageMenShoes: {
-      width: 70,
-      height: 70,
+      width: 68,
+      height: 68,
     },
 
     optionTextWrap: {
@@ -1311,9 +1320,9 @@ function makeStyles(tokens) {
 
     optionText: {
       color: text,
-      fontSize: 17,
-      lineHeight: 22,
-      fontWeight: "800",
+      fontSize: 16,
+      lineHeight: 21,
+      fontWeight: "700",
     },
 
     optionSubtext: {
