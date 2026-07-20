@@ -1,9 +1,13 @@
 // src/constants/categoryTree.js
 // Ce este: sursa unică pentru categoriile de publicare ModaGo.
-// Ce s-a modificat: am păstrat API-ul vechi care funcționa deja în aplicație
-// (getNodesByPath, getNodeByPath, getPathLabels, getPathLabel, isLeafNode, findPathByQuery),
-// dar am curățat arborele pentru lansarea fashion-only: Femei și Bărbați, fără electronice
-// și fără alte categorii în afara zonei fashion.
+// Ce s-a modificat:
+// - am refăcut categoria Copii pe structura finală stabilită:
+//   • Îmbrăcăminte fete
+//   • Îmbrăcăminte băieți
+//   • Încălțăminte > Fete / Băieți
+//   • Accesorii
+// - am păstrat Femei și Bărbați neschimbate
+// - am păstrat API-ul existent neschimbat (getNodesByPath, getNodeByPath, getPathLabels, getPathLabel, isLeafNode, findPathByQuery)
 
 export const CATEGORY_TREE = [
   {
@@ -112,6 +116,64 @@ export const CATEGORY_TREE = [
       },
     ],
   },
+  {
+    key: "kids",
+    label: "Copii",
+    children: [
+      {
+        key: "kids-girls-clothing",
+        label: "Îmbrăcăminte fete",
+        children: [
+          { key: "kids-girls-dresses", label: "Rochii" },
+          { key: "kids-girls-tops", label: "Tricouri și bluze" },
+          { key: "kids-girls-knitwear", label: "Pulovere și hanorace" },
+          { key: "kids-girls-jackets", label: "Geci și paltoane" },
+          { key: "kids-girls-pants", label: "Pantaloni și colanți" },
+          { key: "kids-girls-jeans", label: "Blugi" },
+          { key: "kids-girls-skirts", label: "Fuste" },
+          { key: "kids-girls-sets", label: "Seturi" },
+          { key: "kids-girls-pajamas", label: "Pijamale" },
+          { key: "kids-girls-sportswear", label: "Haine sport" },
+        ],
+      },
+      {
+        key: "kids-boys-clothing",
+        label: "Îmbrăcăminte băieți",
+        children: [
+          { key: "kids-boys-tshirts", label: "Tricouri" },
+          { key: "kids-boys-shirts", label: "Cămăși" },
+          { key: "kids-boys-knitwear", label: "Pulovere și hanorace" },
+          { key: "kids-boys-jackets", label: "Geci și paltoane" },
+          { key: "kids-boys-pants", label: "Pantaloni" },
+          { key: "kids-boys-jeans", label: "Blugi" },
+          { key: "kids-boys-shorts", label: "Pantaloni scurți" },
+          { key: "kids-boys-sets", label: "Seturi" },
+          { key: "kids-boys-pajamas", label: "Pijamale" },
+          { key: "kids-boys-sportswear", label: "Haine sport" },
+        ],
+      },
+      {
+        key: "kids-shoes",
+        label: "Încălțăminte",
+        children: [
+          { key: "kids-shoes-girls", label: "Fete" },
+          { key: "kids-shoes-boys", label: "Băieți" },
+        ],
+      },
+      {
+        key: "kids-accessories",
+        label: "Accesorii",
+        children: [
+          { key: "kids-hats", label: "Căciuli și șepci" },
+          { key: "kids-scarves", label: "Fulare și eșarfe" },
+          { key: "kids-gloves", label: "Mănuși" },
+          { key: "kids-backpacks", label: "Ghiozdane și rucsacuri" },
+          { key: "kids-belts", label: "Curele" },
+          { key: "kids-glasses", label: "Ochelari" },
+        ],
+      },
+    ],
+  },
 ];
 
 function walk(nodes, visitor, parents = []) {
@@ -202,11 +264,6 @@ export function findPathByQuery(tree, query = "") {
 
   return matches;
 }
-
-/**
- * Helpers suplimentari, fără să stricăm API-ul vechi.
- * Sunt utili pentru UI unde vrem doar categoria principală.
- */
 
 export function getPrimaryCategoryLabel(tree, pathKeys = []) {
   return getPathLabels(tree, pathKeys)[0] || "";

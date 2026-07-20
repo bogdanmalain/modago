@@ -8,6 +8,9 @@
 // - cardurile sunt mai apropiate de aspectul primei variante bune
 // - păstrată logica existentă pentru update profil și parolă
 // - theme-aware, fără să afecteze restul aplicației
+// - ADĂUGAT: buton "Șterge contul" cu confirmare și apel Edge Function
+// - ADĂUGAT: mesaj personalizat când ștergerea e blocată de comenzi active
+// - ACTUALIZAT: "Șterge contul" arată identic cu "Deconectează-te" din ProfileScreen
 
 import React, {
   useCallback,
@@ -114,6 +117,7 @@ export default function EditProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let sub;
@@ -281,6 +285,95 @@ export default function EditProfileScreen({ navigation }) {
     }
   }, [user, newPassword, newPassword2]);
 
+  const onDeleteAccount = useCallback(() => {
+    Alert.alert(
+      "Șterge contul",
+      "Ești sigur? Această acțiune este ireversibilă. Toate datele tale (anunțuri, favorite, mesaje, imagini) vor fi șterse permanent.",
+      [
+        { text: "Anulează", style: "cancel" },
+        {
+          text: "Șterge definitiv",
+          style: "destructive",
+          onPress: () => confirmDeleteAccount(),
+        },
+      ],
+    );
+  }, [session]);
+
+  const confirmDeleteAccount = useCallback(async () => {
+    if (!session?.access_token) {
+      Alert.alert("Eroare", "Nu există sesiune activă.");
+      return;
+    }
+
+    setDeleting(true);
+
+    try {
+      const {
+        data: { session: freshSession },
+      } = await supabase.auth.getSession();
+      const token = freshSession?.access_token || session.access_token;
+
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL || supabase.supabaseUrl}/functions/v1/delete-my-account`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        // Comenzi active — mesaj personalizat
+        if (result?.code === "ACCOUNT_DELETION_BLOCKED_BY_ACTIVE_ORDERS") {
+          const parts = [];
+          if (result.sellerActiveCount > 0)
+            parts.push(`${result.sellerActiveCount} comenzi de expediat`);
+          if (result.buyerActiveCount > 0)
+            parts.push(`${result.buyerActiveCount} comenzi de confirmat`);
+
+          Alert.alert(
+            "Nu poți șterge contul",
+            `Ai ${parts.join(" și ")}. Finalizează toate comenzile și revino.`,
+          );
+          return;
+        }
+
+        throw new Error(result?.error || `Eroare server: ${response.status}`);
+      }
+
+      await supabase.auth.signOut();
+
+      Alert.alert(
+        "Cont șters",
+        "Contul tău a fost șters cu succes. Vei fi redirecționat.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              navigation.reset({
+                index: 0,
+                routes: [{ name: ROUTES.Welcome || "Welcome" }],
+              });
+            },
+          },
+        ],
+      );
+    } catch (e) {
+      console.log("❌ delete account error:", e);
+      Alert.alert(
+        "Eroare",
+        e?.message || "Nu am putut șterge contul. Încearcă din nou.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }, [session, navigation]);
+
   if (loading) {
     return (
       <View style={[S.screen, S.centered]}>
@@ -417,6 +510,32 @@ export default function EditProfileScreen({ navigation }) {
                 )}
               </TouchableOpacity>
             </View>
+
+            {/* Șterge contul — stilizat identic cu Deconectează-te din ProfileScreen */}
+            <TouchableOpacity
+              style={[S.deleteCard, deleting && S.saveBtnDisabled]}
+              activeOpacity={0.9}
+              onPress={onDeleteAccount}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <ActivityIndicator size="small" color="#EF6A6A" />
+              ) : (
+                <>
+                  <View style={S.deleteLeft}>
+                    <View style={S.deleteIconWrap}>
+                      <Ionicons
+                        name="trash-outline"
+                        size={22}
+                        color="#EF6A6A"
+                      />
+                    </View>
+                    <Text style={S.deleteText}>Șterge contul</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#EF6A6A" />
+                </>
+              )}
+            </TouchableOpacity>
           </ScrollView>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
@@ -460,6 +579,8 @@ function makeStyles(tokens) {
     pickTok(tokens, "surfaceOverlay", null) ||
     withAlpha(baseCard, 0.6) ||
     baseCard;
+
+  const border = pickTok(tokens, "border", null) || softBorder;
 
   return StyleSheet.create({
     __colors: {
@@ -589,6 +710,39 @@ function makeStyles(tokens) {
       color: onPrimary,
       fontSize: 16,
       fontWeight: "900",
+    },
+
+    deleteCard: {
+      minHeight: 68,
+      borderRadius: 22,
+      backgroundColor: cardBg,
+      borderWidth: 1,
+      borderColor: border,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 18,
+      marginTop: 4,
+      marginBottom: 12,
+    },
+
+    deleteLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      flex: 1,
+    },
+
+    deleteIconWrap: {
+      width: 30,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: 12,
+    },
+
+    deleteText: {
+      color: "#EF6A6A",
+      fontSize: 17,
+      fontWeight: "700",
     },
   });
 }

@@ -1,14 +1,4 @@
-/**
- * ================================
- * src/navigation/routes.js
- * ================================
- * CE ESTE:
- * -> lista centrală de rute a aplicației
- *
- * MODIFICĂRI:
- * -> adăugată ruta Settings
- * -> păstrate rutele pentru EditProfile, Balance, Orders, VacationMode
- */
+// src/navigation/routes.js
 
 export const ROUTES = {
   Home: "Home",
@@ -22,6 +12,9 @@ export const ROUTES = {
   ItemDetails: "ItemDetails",
   EditItem: "EditItem",
   EditProfile: "EditProfile",
+
+  // Chat
+  Chat: "Chat",
 
   // Auth
   Welcome: "Welcome",
@@ -41,4 +34,8 @@ export const ROUTES = {
   Balance: "Balance",
   Orders: "Orders",
   VacationMode: "VacationMode",
+
+  Checkout: "Checkout",
+  ShippingAddresses: "ShippingAddresses",
+  OrderStatus: "OrderStatus",
 };

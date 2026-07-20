@@ -1,14 +1,4 @@
-/**
- * ================================
- * src/navigation/AppNavigator.js
- * ================================
- * COMPONENTĂ: AppNavigator
- *
- * MODIFICĂRI:
- * -> adăugat SettingsScreen în stack-ul mobil și web
- * -> păstrate EditProfileScreen, BalanceScreen, OrdersScreen, VacationModeScreen
- * -> restul structurii rămâne neschimbat
- */
+// src/navigation/AppNavigator.js
 
 import React, {
   useEffect,
@@ -18,7 +8,6 @@ import React, {
   useCallback,
   useContext,
 } from "react";
-import { Platform } from "react-native";
 
 import {
   NavigationContainer,
@@ -31,41 +20,47 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { ROUTES } from "./routes";
 import { supabase } from "../supabaseClient";
 
-// (WEB) Header sus – doar web
-import Header from "../components/Header.web";
-
-// Floating tabbar (MOBILE)
 import FloatingTabBar from "../components/FloatingTabBar";
 
-// Screens
+// Screens – Tabs
 import HomeScreen from "../screens/HomeScreen";
 import SearchScreen from "../screens/SearchScreen";
 import AddItemScreen from "../screens/AddItemScreen";
 import InboxScreen from "../screens/InboxScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 
+// Screens – Stack
 import ItemDetailsScreen from "../screens/ItemDetailsScreen";
 import EditItemScreen from "../screens/EditItemScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 import ImageViewerScreen from "../screens/ImageViewerScreen";
+import ChatScreen from "../screens/ChatScreen";
 
+// Screens – Escrow
+import CheckoutScreen from "../screens/CheckoutScreen";
+import ShippingAddressesScreen from "../screens/ShippingAddressesScreen";
+import OrderStatusScreen from "../screens/OrderStatusScreen";
+
+// Screens – Auth
 import WelcomeScreen from "../screens/WelcomeScreen";
 import LoginScreen from "../screens/LoginScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
 import ResetPasswordScreen from "../screens/ResetPasswordScreen";
 
+// Screens – Profile
 import MyItemsScreen from "../screens/MyItemsScreen";
 import FavoritesScreen from "../screens/FavoritesScreen";
-
 import SettingsScreen from "../screens/SettingsScreen";
 import ThemeSettingsScreen from "../screens/ThemeSettingsScreen";
 import BalanceScreen from "../screens/BalanceScreen";
 import OrdersScreen from "../screens/OrdersScreen";
 import VacationModeScreen from "../screens/VacationModeScreen";
 
-// Theme provider
+// Theme + Unread + Push
 import { ThemeProvider, ThemeContext } from "../theme/ThemeProvider";
+import { UnreadProvider } from "../context/UnreadContext";
+import { setupPushNotifications } from "../services/notificationService";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -116,66 +111,35 @@ function MobileRootStack() {
     >
       <Stack.Screen name="TabsRoot" component={MobileTabs} />
 
-      <Stack.Screen
-        name={ROUTES.ItemDetails}
-        component={ItemDetailsScreen}
-        options={{ animation: "slide_from_right" }}
-      />
+      {/* ── Produs ── */}
+      <Stack.Screen name={ROUTES.ItemDetails} component={ItemDetailsScreen} />
+      <Stack.Screen name={ROUTES.EditItem} component={EditItemScreen} />
 
-      <Stack.Screen
-        name={ROUTES.EditItem}
-        component={EditItemScreen}
-        options={{ animation: "slide_from_right" }}
-      />
-
-      <Stack.Screen
-        name={ROUTES.EditProfile}
-        component={EditProfileScreen}
-        options={{ animation: "slide_from_right" }}
-      />
-
-      <Stack.Screen
-        name={ROUTES.MyItems}
-        component={MyItemsScreen}
-        options={{ animation: "slide_from_right" }}
-      />
-
-      <Stack.Screen
-        name={ROUTES.Favorites}
-        component={FavoritesScreen}
-        options={{ animation: "slide_from_right" }}
-      />
-
-      <Stack.Screen
-        name={ROUTES.Settings}
-        component={SettingsScreen}
-        options={{ animation: "slide_from_right" }}
-      />
-
+      {/* ── Profil ── */}
+      <Stack.Screen name={ROUTES.EditProfile} component={EditProfileScreen} />
+      <Stack.Screen name={ROUTES.MyItems} component={MyItemsScreen} />
+      <Stack.Screen name={ROUTES.Favorites} component={FavoritesScreen} />
+      <Stack.Screen name={ROUTES.Settings} component={SettingsScreen} />
       <Stack.Screen
         name={ROUTES.ThemeSettings}
         component={ThemeSettingsScreen}
-        options={{ animation: "slide_from_right" }}
       />
+      <Stack.Screen name={ROUTES.Balance} component={BalanceScreen} />
+      <Stack.Screen name={ROUTES.Orders} component={OrdersScreen} />
+      <Stack.Screen name={ROUTES.VacationMode} component={VacationModeScreen} />
 
+      {/* ── Chat ── */}
+      <Stack.Screen name={ROUTES.Chat} component={ChatScreen} />
+
+      {/* ── Escrow / Checkout ── */}
+      <Stack.Screen name={ROUTES.Checkout} component={CheckoutScreen} />
       <Stack.Screen
-        name={ROUTES.Balance}
-        component={BalanceScreen}
-        options={{ animation: "slide_from_right" }}
+        name={ROUTES.ShippingAddresses}
+        component={ShippingAddressesScreen}
       />
+      <Stack.Screen name={ROUTES.OrderStatus} component={OrderStatusScreen} />
 
-      <Stack.Screen
-        name={ROUTES.Orders}
-        component={OrdersScreen}
-        options={{ animation: "slide_from_right" }}
-      />
-
-      <Stack.Screen
-        name={ROUTES.VacationMode}
-        component={VacationModeScreen}
-        options={{ animation: "slide_from_right" }}
-      />
-
+      {/* ── Image viewer ── */}
       <Stack.Screen
         name={ROUTES.ImageViewer}
         component={ImageViewerScreen}
@@ -185,38 +149,6 @@ function MobileRootStack() {
           contentStyle: { backgroundColor: "transparent" },
         }}
       />
-    </Stack.Navigator>
-  );
-}
-
-function WebStack() {
-  return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: true,
-        header: () => <Header />,
-        contentStyle: { backgroundColor: "#f5f7fb" },
-      }}
-    >
-      <Stack.Screen name={ROUTES.Home} component={HomeScreen} />
-      <Stack.Screen name={ROUTES.Search} component={SearchScreen} />
-      <Stack.Screen name={ROUTES.AddItem} component={AddItemScreen} />
-      <Stack.Screen name={ROUTES.ItemDetails} component={ItemDetailsScreen} />
-      <Stack.Screen name={ROUTES.EditItem} component={EditItemScreen} />
-      <Stack.Screen name={ROUTES.EditProfile} component={EditProfileScreen} />
-      <Stack.Screen name={ROUTES.MyItems} component={MyItemsScreen} />
-      <Stack.Screen name={ROUTES.Favorites} component={FavoritesScreen} />
-      <Stack.Screen name={ROUTES.Profile} component={ProfileScreen} />
-      <Stack.Screen name={ROUTES.Settings} component={SettingsScreen} />
-      <Stack.Screen
-        name={ROUTES.ThemeSettings}
-        component={ThemeSettingsScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen name={ROUTES.Balance} component={BalanceScreen} />
-      <Stack.Screen name={ROUTES.Orders} component={OrdersScreen} />
-      <Stack.Screen name={ROUTES.VacationMode} component={VacationModeScreen} />
-      <Stack.Screen name={ROUTES.ImageViewer} component={ImageViewerScreen} />
     </Stack.Navigator>
   );
 }
@@ -247,8 +179,6 @@ export default function AppNavigator() {
 
   const currentRouteNameRef = useRef(null);
 
-  const isWeb = Platform.OS === "web";
-
   useEffect(() => {
     let mounted = true;
 
@@ -258,7 +188,7 @@ export default function AppNavigator() {
         if (!mounted) return;
         setSession(data?.session ?? null);
         setSessionReady(true);
-      } catch (e) {
+      } catch {
         if (!mounted) return;
         setSession(null);
         setSessionReady(true);
@@ -275,27 +205,34 @@ export default function AppNavigator() {
     };
   }, []);
 
+  useEffect(() => {
+    if (session?.user?.id) {
+      setupPushNotifications(session.user.id);
+    }
+  }, [session?.user?.id]);
+
   const handleNavStateChange = useCallback(() => {
     const state = navRef.getRootState();
-    const name = getActiveRouteName(state);
-    currentRouteNameRef.current = name;
+    currentRouteNameRef.current = getActiveRouteName(state);
   }, [navRef]);
 
   const AppTree = useMemo(() => {
     if (!sessionReady) return null;
     if (!session) return <AuthStack />;
-    return isWeb ? <WebStack /> : <MobileRootStack />;
-  }, [sessionReady, session, isWeb]);
+    return <MobileRootStack />;
+  }, [sessionReady, session]);
 
   return (
     <ThemeProvider>
-      <NavigationContainer
-        ref={navRef}
-        onReady={handleNavStateChange}
-        onStateChange={handleNavStateChange}
-      >
-        {AppTree}
-      </NavigationContainer>
+      <UnreadProvider>
+        <NavigationContainer
+          ref={navRef}
+          onReady={handleNavStateChange}
+          onStateChange={handleNavStateChange}
+        >
+          {AppTree}
+        </NavigationContainer>
+      </UnreadProvider>
     </ThemeProvider>
   );
 }

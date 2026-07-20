@@ -1,10 +1,10 @@
 // src/screens/AddItemScreen.js
 // Ce este: ecranul de publicare produs pentru ModaGo.
 // Ce s-a modificat:
-// - am aliniat mai bine iconurile de categorie, astfel încât toate să stea pe aceeași coloană vizuală
-// - am introdus un slot fix pentru icon în CategoryLeadingVisual, ca textul să înceapă din același loc
-// - am păstrat suportul pentru imaginile din categoryVisuals și logica actuală de publicare/upload
-// - nu am schimbat flow-ul de publicare, atributele sau structura categoriilor
+// - am păstrat eliminarea emoji-urilor fallback urâte pentru subcategoriile fără asset
+// - am mutat subcategoriile fără icon mai la stânga, cu o spațiere mică și curată
+// - când nu există imagine, nu mai rezervăm slotul mare de icon, ci un spacer mic
+// - restul flow-ului de publicare, atribute, upload și category picker rămâne neschimbat
 
 import React, {
   useCallback,
@@ -137,6 +137,40 @@ function getDisplayCategoryLabel(rawLabel, pathLabels = [], nextPath = []) {
         return "Pantofi";
       }
     }
+
+    if (topLabel === "copii") {
+      if (
+        normalized === "îmbrăcăminte fete" ||
+        normalized === "imbracaminte fete"
+      ) {
+        return "Haine fete";
+      }
+      if (
+        normalized === "îmbrăcăminte băieți" ||
+        normalized === "imbracaminte băieți" ||
+        normalized === "îmbrăcăminte baieti" ||
+        normalized === "imbracaminte baieti"
+      ) {
+        return "Haine băieți";
+      }
+      if (normalized === "încălțăminte" || normalized === "incaltaminte") {
+        return "Pantofi";
+      }
+      if (normalized === "accesorii") {
+        return "Accesorii";
+      }
+    }
+  }
+
+  if (depth === 3 && topLabel === "copii") {
+    const parentLabel = normalizeLabel(pathLabels?.[1] || "");
+
+    if (parentLabel === "încălțăminte" || parentLabel === "incaltaminte") {
+      if (normalized === "fete") return "Pantofi fete";
+      if (normalized === "băieți" || normalized === "baieti") {
+        return "Pantofi băieți";
+      }
+    }
   }
 
   return rawLabel || "";
@@ -152,9 +186,7 @@ function getCategoryEmoji(label, pathLabels = [], nextPath = []) {
   if (depth === 1) {
     if (displayLabel === "femei") return "👗";
     if (displayLabel === "bărbați" || displayLabel === "barbati") return "👔";
-    if (displayLabel === "copii") return "🧸";
-    if (displayLabel === "casă" || displayLabel === "casa") return "🏠";
-    if (displayLabel === "electronice") return "📱";
+    if (displayLabel === "copii") return "🧒";
   }
 
   if (topLabel === "femei" && depth === 2) {
@@ -170,24 +202,80 @@ function getCategoryEmoji(label, pathLabels = [], nextPath = []) {
     if (displayLabel === "accesorii") return "⌚";
   }
 
+  if (topLabel === "copii" && depth === 2) {
+    if (
+      displayLabel === "haine fete" ||
+      displayLabel === "haine băieți" ||
+      displayLabel === "haine baieti"
+    ) {
+      return "🧥";
+    }
+    if (displayLabel === "pantofi") return "👟";
+    if (displayLabel === "accesorii") return "🎒";
+  }
+
+  if (topLabel === "copii" && depth === 3) {
+    if (displayLabel === "pantofi fete") return "👟";
+    if (
+      displayLabel === "pantofi băieți" ||
+      displayLabel === "pantofi baieti"
+    ) {
+      return "👟";
+    }
+  }
+
   if (displayLabel.includes("roch")) return "👗";
   if (displayLabel.includes("haine")) return "👕";
-  if (displayLabel.includes("pantofi")) return "👞";
+  if (displayLabel.includes("pantofi")) return "👟";
   if (displayLabel.includes("încăl") || displayLabel.includes("incal")) {
-    return "👞";
+    return "👟";
   }
   if (displayLabel.includes("geant")) return "👜";
-  if (displayLabel.includes("accesor")) return "⌚";
-  if (displayLabel.includes("telefon")) return "📱";
-  if (displayLabel.includes("laptop")) return "💻";
-  if (displayLabel.includes("tablet")) return "📲";
-  if (displayLabel.includes("tv")) return "📺";
+  if (displayLabel.includes("accesor")) return "🎒";
   if (displayLabel.includes("ceas")) return "⌚";
   if (displayLabel.includes("jachet")) return "🧥";
-  if (displayLabel.includes("cop")) return "🧸";
-  if (displayLabel.includes("cas")) return "🏠";
+  if (displayLabel.includes("cop")) return "🧒";
+  if (displayLabel.includes("ghioz") || displayLabel.includes("rucsac")) {
+    return "🎒";
+  }
+  if (displayLabel.includes("ochel")) return "🕶️";
+  if (displayLabel.includes("mănu") || displayLabel.includes("manu")) {
+    return "🧤";
+  }
+  if (displayLabel.includes("fular") || displayLabel.includes("eșarf")) {
+    return "🧣";
+  }
+  if (displayLabel.includes("șep") || displayLabel.includes("sep")) {
+    return "🧢";
+  }
 
   return "✨";
+}
+
+function isFashionSecondLevel(pathLabels = [], nextPath = []) {
+  const topLabel = normalizeLabel(pathLabels?.[0] || "");
+  const depth = Array.isArray(nextPath) ? nextPath.length : 0;
+
+  return (
+    depth === 2 &&
+    (topLabel === "femei" ||
+      topLabel === "bărbați" ||
+      topLabel === "barbati" ||
+      topLabel === "copii")
+  );
+}
+
+function shouldSuppressEmojiFallback(pathLabels = [], nextPath = []) {
+  const topLabel = normalizeLabel(pathLabels?.[0] || "");
+  const depth = Array.isArray(nextPath) ? nextPath.length : 0;
+
+  return (
+    (topLabel === "femei" ||
+      topLabel === "bărbați" ||
+      topLabel === "barbati" ||
+      topLabel === "copii") &&
+    depth >= 2
+  );
 }
 
 function CategoryLeadingVisual({
@@ -197,10 +285,8 @@ function CategoryLeadingVisual({
   stylesObj,
 }) {
   const imageSource = getCategoryImageByPath(nextPath);
-  const pathKey = Array.isArray(nextPath) ? nextPath.join(">") : "";
-
-  const isWomenClothing = pathKey === "women>women-clothing";
-  const isMenShoes = pathKey === "men>men-shoes";
+  const useUnifiedFashionSize = isFashionSecondLevel(pathLabels, nextPath);
+  const suppressEmoji = shouldSuppressEmojiFallback(pathLabels, nextPath);
 
   if (imageSource) {
     return (
@@ -208,22 +294,24 @@ function CategoryLeadingVisual({
         <View
           style={[
             stylesObj.optionImageWrap,
-            isWomenClothing && stylesObj.optionImageWrapLarge,
-            isMenShoes && stylesObj.optionImageWrapMenShoes,
+            useUnifiedFashionSize && stylesObj.optionImageWrapFashionUnified,
           ]}
         >
           <Image
             source={imageSource}
             style={[
               stylesObj.optionImage,
-              isWomenClothing && stylesObj.optionImageLarge,
-              isMenShoes && stylesObj.optionImageMenShoes,
+              useUnifiedFashionSize && stylesObj.optionImageFashionUnified,
             ]}
             resizeMode="contain"
           />
         </View>
       </View>
     );
+  }
+
+  if (suppressEmoji) {
+    return <View style={stylesObj.optionLeadingSpacer} />;
   }
 
   return (
@@ -707,7 +795,7 @@ export default function AddItemScreen({ navigation }) {
   const bottomSafeSpace =
     Platform.OS === "android"
       ? Math.max(insets.bottom, 18) + 120
-      : Math.max(insets.bottom, 16) + 18;
+      : Math.max(insets.bottom, 16) + 100;
 
   return (
     <View style={S.screen}>
@@ -731,10 +819,11 @@ export default function AddItemScreen({ navigation }) {
 
         <TextInput
           value={title}
-          onChangeText={setTitle}
+          onChangeText={(t) => setTitle(t.slice(0, 50))}
           placeholder="Titlu"
           placeholderTextColor={S.placeholder.color}
           style={S.input}
+          maxLength={50}
         />
 
         <TextInput
@@ -1271,6 +1360,11 @@ function makeStyles(tokens) {
       justifyContent: "center",
     },
 
+    optionLeadingSpacer: {
+      width: 14,
+      minWidth: 14,
+    },
+
     optionEmoji: {
       fontSize: 24,
       lineHeight: 28,
@@ -1292,24 +1386,14 @@ function makeStyles(tokens) {
       height: 58,
     },
 
-    optionImageWrapLarge: {
-      width: 66,
-      height: 66,
+    optionImageWrapFashionUnified: {
+      width: 40,
+      height: 40,
     },
 
-    optionImageLarge: {
-      width: 66,
-      height: 66,
-    },
-
-    optionImageWrapMenShoes: {
-      width: 68,
-      height: 68,
-    },
-
-    optionImageMenShoes: {
-      width: 68,
-      height: 68,
+    optionImageFashionUnified: {
+      width: 40,
+      height: 40,
     },
 
     optionTextWrap: {

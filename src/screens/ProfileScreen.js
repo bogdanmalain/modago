@@ -36,6 +36,7 @@ import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import { fetchMyItems } from "../services/itemsService";
 import { fetchFavoriteItems } from "../services/favoritesService";
+import { getMyBalance } from "../services/orderService";
 import { ThemeContext } from "../theme/ThemeProvider";
 
 import logoLight from "../../assets/logo/modago-logo-light.png";
@@ -121,6 +122,7 @@ export default function ProfileScreen({ navigation }) {
   const [loadingCounts, setLoadingCounts] = useState(true);
   const [myItemsCount, setMyItemsCount] = useState(null);
   const [favCount, setFavCount] = useState(null);
+  const [balanceMdl, setBalanceMdl] = useState(null);
 
   useEffect(() => {
     let sub;
@@ -169,23 +171,30 @@ export default function ProfileScreen({ navigation }) {
     if (!userId) {
       setMyItemsCount(null);
       setFavCount(null);
+      setBalanceMdl(null);
       setLoadingCounts(false);
       return;
     }
 
     setLoadingCounts(true);
     try {
-      const [myItems, favItems] = await Promise.all([
+      const [myItems, favItems, balance] = await Promise.all([
         fetchMyItems(userId),
         fetchFavoriteItems(userId),
+        getMyBalance().catch((e) => {
+          console.log("❌ getMyBalance error:", e);
+          return null;
+        }),
       ]);
 
       setMyItemsCount(Array.isArray(myItems) ? myItems.length : 0);
       setFavCount(Array.isArray(favItems) ? favItems.length : 0);
+      setBalanceMdl(balance ? balance.available_mdl : null);
     } catch (e) {
       console.log("❌ loadCounts error:", e);
       setMyItemsCount(null);
       setFavCount(null);
+      setBalanceMdl(null);
     } finally {
       setLoadingCounts(false);
     }
@@ -242,6 +251,8 @@ export default function ProfileScreen({ navigation }) {
   }, []);
 
   const formatCount = (val) => (loadingCounts ? "—" : String(val ?? "—"));
+  const formatBalance = (val) =>
+    loadingCounts || val === null ? "—" : `${Number(val).toFixed(2)} MDL`;
 
   const logoSource =
     settings?.mode === "manual"
@@ -353,7 +364,7 @@ export default function ProfileScreen({ navigation }) {
           <MenuRow
             icon="wallet-outline"
             label="Sold"
-            value="0,00 MDL"
+            value={formatBalance(balanceMdl)}
             onPress={goBalance}
             showDivider
             S={S}

@@ -1,10 +1,11 @@
 // src/screens/ItemDetailsScreen.js
 // COMPONENTĂ: ItemDetailsScreen
-// MODIFICARE:
-// - în UI afișăm doar categoria principală (ex: "Electronice"), nu tot breadcrumb-ul lung
-// - păstrăm categoria completă în date pentru logică/recomandări, dar textul vizibil este simplificat
-// - și cardurile din "Mai multe de la acest utilizator" / "Articole similare" afișează doar categoria mare
-// - restul layout-ului și logicii rămân neschimbate
+// MODIFICĂRI:
+// - adăugată secțiune seller (avatar + username + buton "Întreabă")
+// - adăugat bottom bar sticky cu "Cumpără acum"
+// - integrat chatService pentru deschidere conversație
+// - fetch profil seller din Supabase
+// - în UI afișăm doar categoria principală, nu tot breadcrumb-ul
 
 import React, {
   useCallback,
@@ -44,6 +45,7 @@ import {
   fetchFavoritesMapForUser,
   toggleFavorite,
 } from "../services/favoritesService";
+import { getOrCreateConversation } from "../services/chatService";
 import { ThemeContext } from "../theme/ThemeProvider";
 import HeaderBackButton from "../components/HeaderBackButton";
 
@@ -277,6 +279,8 @@ export default function ItemDetailsScreen({ navigation, route }) {
   const [similarItems, setSimilarItems] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(false);
 
+  const [sellerProfile, setSellerProfile] = useState(null);
+
   useEffect(() => {
     setActiveIndex(0);
     dotsAnim.setValue(0);
@@ -364,6 +368,23 @@ export default function ItemDetailsScreen({ navigation, route }) {
 
     return () => sub?.unsubscribe?.();
   }, []);
+
+  // Fetch seller profile
+  useEffect(() => {
+    if (!item?.user_id) return;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("profiles")
+          .select("id, username, avatar_url")
+          .eq("id", item.user_id)
+          .single();
+        setSellerProfile(data);
+      } catch (e) {
+        console.log("⚠️ fetch seller profile:", e);
+      }
+    })();
+  }, [item?.user_id]);
 
   const loadFavInfo = useCallback(async () => {
     if (!itemId) return;
@@ -647,7 +668,7 @@ export default function ItemDetailsScreen({ navigation, route }) {
     }
   }, [item]);
 
-  const onChatPress = useCallback(() => {
+  const onChatPress = useCallback(async () => {
     if (!session?.user?.id) {
       navigation.navigate(ROUTES.Login);
       return;
@@ -661,11 +682,56 @@ export default function ItemDetailsScreen({ navigation, route }) {
       return;
     }
 
-    Alert.alert(
-      "Chat",
-      "Zona de chat pentru acest anunț o legăm în pasul următor.",
-    );
-  }, [session?.user?.id, navigation, isOwner]);
+    try {
+      const convo = await getOrCreateConversation({
+        itemId: item.id,
+        buyerId: session.user.id,
+        sellerId: item.user_id,
+      });
+
+      navigation.navigate(ROUTES.Chat, {
+        conversation: {
+          ...convo,
+          item: {
+            id: item.id,
+            title: item.title,
+            images: item.images,
+            price: item.price,
+          },
+          buyer:
+            String(convo.buyer_id) === String(session.user.id)
+              ? { id: session.user.id, username: "Eu" }
+              : sellerProfile,
+          seller:
+            String(convo.seller_id) === String(item.user_id)
+              ? sellerProfile
+              : { id: session.user.id, username: "Eu" },
+        },
+        userId: session.user.id,
+      });
+    } catch (e) {
+      Alert.alert("Eroare", e?.message || "Nu pot deschide chat-ul.");
+    }
+  }, [session?.user?.id, navigation, isOwner, item, sellerProfile]);
+
+  const onBuyNow = useCallback(() => {
+    if (!session?.user?.id) {
+      navigation.navigate(ROUTES.Login);
+      return;
+    }
+
+    if (isOwner) {
+      Alert.alert("Anunțul tău", "Nu poți cumpăra propriul anunț.");
+      return;
+    }
+
+    navigation.navigate(ROUTES.Checkout, {
+      item: {
+        ...item,
+        seller_username: sellerProfile?.username ?? "Vânzător",
+      },
+    });
+  }, [session?.user?.id, navigation, isOwner, item, sellerProfile]);
 
   const onOwnerLongPress = useCallback(() => {
     if (!isOwner) return;
@@ -945,6 +1011,42 @@ export default function ItemDetailsScreen({ navigation, route }) {
           <Text style={S.section}>Descriere</Text>
           <Text style={S.desc}>{item.description || "—"}</Text>
 
+          {/* Seller section */}
+          {sellerProfile && (
+            <View style={S.sellerSection}>
+              <View style={S.sellerLeft}>
+                {sellerProfile.avatar_url ? (
+                  <Image
+                    source={{ uri: sellerProfile.avatar_url }}
+                    style={S.sellerAvatar}
+                  />
+                ) : (
+                  <View style={[S.sellerAvatar, S.sellerAvatarPlaceholder]}>
+                    <Text style={S.sellerAvatarLetter}>
+                      {(sellerProfile.username || "?")[0]?.toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={S.sellerInfo}>
+                  <Text style={S.sellerName} numberOfLines={1}>
+                    {sellerProfile.username || "Utilizator"}
+                  </Text>
+                </View>
+              </View>
+
+              {!isOwner && (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  style={S.askBtn}
+                  onPress={onChatPress}
+                >
+                  <Text style={S.askBtnText}>Întreabă</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
           {!relatedLoading && moreFromSeller.length > 0 ? (
             <View style={S.relatedSection}>
               <Text style={S.relatedSectionTitle}>
@@ -973,9 +1075,27 @@ export default function ItemDetailsScreen({ navigation, route }) {
             </View>
           ) : null}
 
-          <View style={{ height: Math.max(insets.bottom, 10) }} />
+          <View style={{ height: Math.max(insets.bottom, 10) + 70 }} />
         </View>
       </Animated.ScrollView>
+
+      {/* Bottom bar — Cumpără acum */}
+      {!isOwner && (
+        <View
+          style={[
+            S.bottomBar,
+            { paddingBottom: Math.max(insets.bottom, 10) + 6 },
+          ]}
+        >
+          <TouchableOpacity
+            activeOpacity={0.9}
+            style={S.buyBtn}
+            onPress={onBuyNow}
+          >
+            <Text style={S.buyBtnText}>Cumpără acum</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <Modal
         visible={infoSheetVisible}
@@ -1456,6 +1576,94 @@ function makeStyles(tokens, HERO_H, insets, SCREEN_H) {
       fontSize: 16,
       lineHeight: 22,
       color: text,
+    },
+
+    // Seller section
+    sellerSection: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 20,
+      paddingTop: 18,
+      paddingBottom: 18,
+      borderTopWidth: 1,
+      borderTopColor: border,
+      borderBottomWidth: 1,
+      borderBottomColor: border,
+    },
+
+    sellerLeft: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+
+    sellerAvatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+    },
+
+    sellerAvatarPlaceholder: {
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    sellerAvatarLetter: {
+      color: onPrimary,
+      fontSize: 18,
+      fontWeight: "900",
+    },
+
+    sellerInfo: {
+      flex: 1,
+    },
+
+    sellerName: {
+      fontSize: 15,
+      fontWeight: "800",
+      color: text,
+    },
+
+    askBtn: {
+      height: 38,
+      paddingHorizontal: 20,
+      borderRadius: 20,
+      borderWidth: 1.5,
+      borderColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    askBtnText: {
+      fontSize: 14,
+      fontWeight: "800",
+      color: primary,
+    },
+
+    // Bottom bar
+    bottomBar: {
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: border,
+      backgroundColor: bg,
+    },
+
+    buyBtn: {
+      height: 52,
+      borderRadius: 14,
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    buyBtnText: {
+      color: onPrimary,
+      fontSize: 17,
+      fontWeight: "900",
     },
 
     relatedSection: {

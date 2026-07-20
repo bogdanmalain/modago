@@ -1,10 +1,9 @@
 // src/components/FloatingTabBar.js
 // COMPONENTĂ: FloatingTabBar
 // MODIFICARE:
-// - ANDROID FIX: fără glossy / blur pe Android, aspect mai curat
-// - ANDROID FIX: bară puțin mai compactă și stabilă vizual
-// - iOS rămâne cu blur/glossy ca înainte
-// - păstrată logica de navigare și etichetele existente
+// - adăugat badge mesaje necitite pe tab-ul Inbox
+// - ANDROID FIX: fără glossy / blur pe Android
+// - iOS rămâne cu blur/glossy
 
 import React, { useEffect, useMemo, useState, useContext } from "react";
 import {
@@ -21,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { ThemeContext } from "../theme/ThemeProvider";
 import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
+import { useUnread } from "../context/UnreadContext";
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -60,6 +60,8 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
   const { tokens, scheme } = useContext(ThemeContext);
   const isDark = scheme === "dark";
   const isAndroid = Platform.OS === "android";
+
+  const { unreadCount } = useUnread();
 
   const [profileInitial, setProfileInitial] = useState("👤");
 
@@ -138,7 +140,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
         };
       case ROUTES.Inbox:
         return {
-          label: "Mesaje primite",
+          label: "Mesaje",
           iconOff: "mail-outline",
           iconOn: "mail",
         };
@@ -186,6 +188,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
           };
 
           const isProfile = route.name === ROUTES.Profile;
+          const isInbox = route.name === ROUTES.Inbox;
 
           return (
             <TouchableOpacity
@@ -213,13 +216,24 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
                     <View style={S.dot} />
                   </View>
                 ) : (
-                  <Ionicons
-                    name={
-                      isFocused ? fallbackMeta.iconOn : fallbackMeta.iconOff
-                    }
-                    size={21}
-                    color={isFocused ? S.iconOn.color : S.iconOff.color}
-                  />
+                  <View style={{ position: "relative" }}>
+                    <Ionicons
+                      name={
+                        isFocused ? fallbackMeta.iconOn : fallbackMeta.iconOff
+                      }
+                      size={21}
+                      color={isFocused ? S.iconOn.color : S.iconOff.color}
+                    />
+
+                    {/* Badge mesaje necitite */}
+                    {isInbox && unreadCount > 0 && (
+                      <View style={S.unreadBadge}>
+                        <Text style={S.unreadBadgeText}>
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 )}
 
                 <Text
@@ -487,6 +501,29 @@ function makeStyles(tokens, isDark, bottom, isAndroid) {
       backgroundColor: "#EF4444",
       borderWidth: 2,
       borderColor: dotBorder,
+    },
+
+    // Badge mesaje necitite
+    unreadBadge: {
+      position: "absolute",
+      top: -6,
+      right: -10,
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: "#EF4444",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 4,
+      borderWidth: 2,
+      borderColor: isDark ? "rgba(11,17,30,0.96)" : "rgba(255,255,255,0.98)",
+      zIndex: 10,
+    },
+
+    unreadBadgeText: {
+      color: "#fff",
+      fontSize: 10,
+      fontWeight: "900",
     },
   });
 }

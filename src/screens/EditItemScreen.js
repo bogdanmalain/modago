@@ -1,10 +1,10 @@
 // src/screens/EditItemScreen.js
-// COMPONENTĂ: EditItemScreen
-// MODIFICARE:
-// - după delete nu mai mergem în Home
-// - revenim în MyItemsScreen cu params: deletedItemId, deletedAt, deletedSuccessMessage
-// - MyItemsScreen va afișa popup-ul de succes și va scoate anunțul local din listă
-// - păstrat delete-ul strict din Supabase Storage și curățarea favorites
+// Ce este: ecranul de editare produs pentru ModaGo.
+// Ce s-a modificat:
+// - am înlocuit categoria text liber cu selector real bazat pe CATEGORY_TREE, aliniat cu AddItemScreen
+// - am adăugat atribute dinamice bazate pe categoryAttributes, cu picker dedicat pentru fiecare atribut
+// - la salvare trimit și category, category_key, category_path și attributes
+// - am păstrat flow-ul existent de update, delete, upload și reorder pentru poze
 
 import React, {
   useCallback,
@@ -24,6 +24,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Platform,
+  Keyboard,
+  Modal,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -38,11 +40,33 @@ import { ThemeContext } from "../theme/ThemeProvider";
 import HeaderBackButton, {
   HEADER_BACK_SIZE,
 } from "../components/HeaderBackButton";
+import {
+  CATEGORY_TREE,
+  getNodesByPath,
+  getPathLabel,
+  getPathLabels,
+  getNodeByPath,
+  isLeafNode,
+  findPathByQuery,
+} from "../constants/categoryTree";
+import {
+  getCategoryAttributes,
+  getOptionLabel,
+} from "../constants/categoryAttributes";
+import { getCategoryImageByPath } from "../constants/categoryVisuals";
 
 const STORAGE_BUCKET = "items";
 const MAX_IMAGES = 6;
 const MAX_LONG_SIDE = 1600;
 const JPEG_QUALITY = 0.85;
+
+const HIDDEN_TOP_CATEGORY_KEYS = new Set(["entertainment", "hobby", "sports"]);
+const HIDDEN_TOP_CATEGORY_LABELS = new Set([
+  "divertisment",
+  "hobbyuri și colecții",
+  "hobbyuri si colectii",
+  "sporturi",
+]);
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -61,6 +85,328 @@ function base64ToUint8Array(base64) {
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
+}
+
+function normalizeLabel(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeTextValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const lowered = text.toLowerCase();
+  if (lowered === "null" || lowered === "undefined") return "";
+  return text;
+}
+
+function shouldHideTopCategoryByNode(node) {
+  const key = normalizeLabel(node?.key);
+  const label = normalizeLabel(node?.label);
+  return (
+    HIDDEN_TOP_CATEGORY_KEYS.has(key) || HIDDEN_TOP_CATEGORY_LABELS.has(label)
+  );
+}
+
+function shouldHideTopCategoryByPathKeys(pathKeys = [], pathLabel = "") {
+  const firstKey = normalizeLabel(pathKeys?.[0]);
+  const firstLabel = normalizeLabel(
+    String(pathLabel || "")
+      .split(">")
+      .map((x) => x.trim())[0] || "",
+  );
+
+  return (
+    HIDDEN_TOP_CATEGORY_KEYS.has(firstKey) ||
+    HIDDEN_TOP_CATEGORY_LABELS.has(firstLabel)
+  );
+}
+
+function getDisplayCategoryLabel(rawLabel, pathLabels = [], nextPath = []) {
+  const normalized = normalizeLabel(rawLabel);
+  const topLabel = normalizeLabel(pathLabels?.[0] || "");
+  const depth = Array.isArray(nextPath) ? nextPath.length : 0;
+
+  if (depth === 2) {
+    if (topLabel === "femei") {
+      if (normalized === "îmbrăcăminte" || normalized === "imbracaminte") {
+        return "Haine";
+      }
+      if (normalized === "încălțăminte" || normalized === "incaltaminte") {
+        return "Pantofi";
+      }
+    }
+
+    if (topLabel === "bărbați" || topLabel === "barbati") {
+      if (normalized === "îmbrăcăminte" || normalized === "imbracaminte") {
+        return "Haine";
+      }
+      if (normalized === "încălțăminte" || normalized === "incaltaminte") {
+        return "Pantofi";
+      }
+    }
+
+    if (topLabel === "copii") {
+      if (
+        normalized === "îmbrăcăminte fete" ||
+        normalized === "imbracaminte fete"
+      ) {
+        return "Haine fete";
+      }
+      if (
+        normalized === "îmbrăcăminte băieți" ||
+        normalized === "imbracaminte băieți" ||
+        normalized === "îmbrăcăminte baieti" ||
+        normalized === "imbracaminte baieti"
+      ) {
+        return "Haine băieți";
+      }
+      if (normalized === "încălțăminte" || normalized === "incaltaminte") {
+        return "Pantofi";
+      }
+      if (normalized === "accesorii") {
+        return "Accesorii";
+      }
+    }
+  }
+
+  if (depth === 3 && topLabel === "copii") {
+    const parentLabel = normalizeLabel(pathLabels?.[1] || "");
+
+    if (parentLabel === "încălțăminte" || parentLabel === "incaltaminte") {
+      if (normalized === "fete") return "Pantofi fete";
+      if (normalized === "băieți" || normalized === "baieti") {
+        return "Pantofi băieți";
+      }
+    }
+  }
+
+  return rawLabel || "";
+}
+
+function getCategoryEmoji(label, pathLabels = [], nextPath = []) {
+  const displayLabel = normalizeLabel(
+    getDisplayCategoryLabel(label, pathLabels, nextPath),
+  );
+  const topLabel = normalizeLabel(pathLabels?.[0] || "");
+  const depth = Array.isArray(nextPath) ? nextPath.length : 0;
+
+  if (depth === 1) {
+    if (displayLabel === "femei") return "👗";
+    if (displayLabel === "bărbați" || displayLabel === "barbati") return "👔";
+    if (displayLabel === "copii") return "🧒";
+  }
+
+  if (topLabel === "femei" && depth === 2) {
+    if (displayLabel === "haine") return "👗";
+    if (displayLabel === "pantofi") return "👠";
+    if (displayLabel === "genți" || displayLabel === "genti") return "👜";
+    if (displayLabel === "accesorii") return "💍";
+  }
+
+  if ((topLabel === "bărbați" || topLabel === "barbati") && depth === 2) {
+    if (displayLabel === "haine") return "👕";
+    if (displayLabel === "pantofi") return "👞";
+    if (displayLabel === "accesorii") return "⌚";
+  }
+
+  if (topLabel === "copii" && depth === 2) {
+    if (
+      displayLabel === "haine fete" ||
+      displayLabel === "haine băieți" ||
+      displayLabel === "haine baieti"
+    ) {
+      return "🧥";
+    }
+    if (displayLabel === "pantofi") return "👟";
+    if (displayLabel === "accesorii") return "🎒";
+  }
+
+  if (topLabel === "copii" && depth === 3) {
+    if (displayLabel === "pantofi fete") return "👟";
+    if (
+      displayLabel === "pantofi băieți" ||
+      displayLabel === "pantofi baieti"
+    ) {
+      return "👟";
+    }
+  }
+
+  if (displayLabel.includes("roch")) return "👗";
+  if (displayLabel.includes("haine")) return "👕";
+  if (displayLabel.includes("pantofi")) return "👟";
+  if (displayLabel.includes("încăl") || displayLabel.includes("incal")) {
+    return "👟";
+  }
+  if (displayLabel.includes("geant")) return "👜";
+  if (displayLabel.includes("accesor")) return "🎒";
+  if (displayLabel.includes("ceas")) return "⌚";
+  if (displayLabel.includes("jachet")) return "🧥";
+  if (displayLabel.includes("cop")) return "🧒";
+  if (displayLabel.includes("ghioz") || displayLabel.includes("rucsac")) {
+    return "🎒";
+  }
+  if (displayLabel.includes("ochel")) return "🕶️";
+  if (displayLabel.includes("mănu") || displayLabel.includes("manu")) {
+    return "🧤";
+  }
+  if (displayLabel.includes("fular") || displayLabel.includes("eșarf")) {
+    return "🧣";
+  }
+  if (displayLabel.includes("șep") || displayLabel.includes("sep")) {
+    return "🧢";
+  }
+
+  return "✨";
+}
+
+function isFashionSecondLevel(pathLabels = [], nextPath = []) {
+  const topLabel = normalizeLabel(pathLabels?.[0] || "");
+  const depth = Array.isArray(nextPath) ? nextPath.length : 0;
+
+  return (
+    depth === 2 &&
+    (topLabel === "femei" ||
+      topLabel === "bărbați" ||
+      topLabel === "barbati" ||
+      topLabel === "copii")
+  );
+}
+
+function shouldSuppressEmojiFallback(pathLabels = [], nextPath = []) {
+  const topLabel = normalizeLabel(pathLabels?.[0] || "");
+  const depth = Array.isArray(nextPath) ? nextPath.length : 0;
+
+  return (
+    (topLabel === "femei" ||
+      topLabel === "bărbați" ||
+      topLabel === "barbati" ||
+      topLabel === "copii") &&
+    depth >= 2
+  );
+}
+
+function CategoryLeadingVisual({
+  label,
+  pathLabels = [],
+  nextPath = [],
+  stylesObj,
+}) {
+  const imageSource = getCategoryImageByPath(nextPath);
+  const useUnifiedFashionSize = isFashionSecondLevel(pathLabels, nextPath);
+  const suppressEmoji = shouldSuppressEmojiFallback(pathLabels, nextPath);
+
+  if (imageSource) {
+    return (
+      <View style={stylesObj.optionLeadingSlot}>
+        <View
+          style={[
+            stylesObj.optionImageWrap,
+            useUnifiedFashionSize && stylesObj.optionImageWrapFashionUnified,
+          ]}
+        >
+          <Image
+            source={imageSource}
+            style={[
+              stylesObj.optionImage,
+              useUnifiedFashionSize && stylesObj.optionImageFashionUnified,
+            ]}
+            resizeMode="contain"
+          />
+        </View>
+      </View>
+    );
+  }
+
+  if (suppressEmoji) {
+    return <View style={stylesObj.optionLeadingSpacer} />;
+  }
+
+  return (
+    <View style={stylesObj.optionLeadingSlot}>
+      <Text style={stylesObj.optionEmoji}>
+        {getCategoryEmoji(label, pathLabels, nextPath)}
+      </Text>
+    </View>
+  );
+}
+
+async function normalizeToJpegMobile(uri, meta) {
+  const w = Number(meta?.width) || null;
+  const h = Number(meta?.height) || null;
+
+  const actions = [];
+
+  if (w && h) {
+    const longSide = Math.max(w, h);
+    if (longSide > MAX_LONG_SIDE) {
+      if (w >= h) actions.push({ resize: { width: MAX_LONG_SIDE } });
+      else actions.push({ resize: { height: MAX_LONG_SIDE } });
+    }
+  } else {
+    actions.push({ resize: { width: MAX_LONG_SIDE } });
+  }
+
+  const result = await ImageManipulator.manipulateAsync(uri, actions, {
+    compress: JPEG_QUALITY,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+
+  if (!result?.uri) {
+    throw new Error("Nu am putut normaliza poza (JPEG/resize).");
+  }
+  return result.uri;
+}
+
+async function uploadImageToSupabase({ uri, userId, meta }) {
+  if (!uri) throw new Error("Lipsește uri pentru upload.");
+  if (!userId) throw new Error("Lipsește userId pentru upload.");
+
+  const path = makeFilePath(userId);
+
+  if (Platform.OS === "web") {
+    const res = await fetch(uri);
+    if (!res.ok) throw new Error("Nu pot citi poza (fetch a eșuat).");
+
+    const blob = await res.blob();
+
+    const { error: upErr } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(path, blob, { contentType: "image/jpeg", upsert: false });
+
+    if (upErr) throw upErr;
+
+    const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+    const publicUrl = data?.publicUrl || "";
+    if (!publicUrl) throw new Error("Nu am primit publicUrl pentru poză.");
+
+    return publicUrl;
+  }
+
+  const jpegUri = await normalizeToJpegMobile(uri, meta);
+
+  const info = await FileSystem.getInfoAsync(jpegUri);
+  if (!info?.exists) throw new Error("Fișierul JPEG nu există pe device.");
+
+  const base64 = await FileSystem.readAsStringAsync(jpegUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  if (!base64) throw new Error("Nu pot citi poza (base64 gol).");
+
+  const bytes = base64ToUint8Array(base64);
+
+  const { error: upErr } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(path, bytes, { contentType: "image/jpeg", upsert: false });
+
+  if (upErr) throw upErr;
+
+  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  const publicUrl = data?.publicUrl || "";
+  if (!publicUrl) throw new Error("Nu am primit publicUrl pentru poză.");
+
+  return publicUrl;
 }
 
 function extractStoragePathFromUrl(url, bucket = STORAGE_BUCKET) {
@@ -177,82 +523,77 @@ async function deleteItemWithImages(item, bucket = STORAGE_BUCKET) {
   if (dbErr) throw dbErr;
 }
 
-async function normalizeToJpegMobile(uri, meta) {
-  const w = Number(meta?.width) || null;
-  const h = Number(meta?.height) || null;
+function AttributeSelectField({
+  label,
+  value,
+  displayValue,
+  placeholder,
+  onPress,
+  stylesObj,
+}) {
+  return (
+    <View style={stylesObj.attrBlock}>
+      <Text style={stylesObj.attrLabel}>{label}</Text>
 
-  const actions = [];
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={onPress}
+        style={stylesObj.selectInput}
+      >
+        <View style={stylesObj.selectInputContent}>
+          <Text
+            style={[
+              stylesObj.selectInputValue,
+              !value && stylesObj.selectInputPlaceholder,
+            ]}
+            numberOfLines={2}
+          >
+            {displayValue || placeholder}
+          </Text>
 
-  if (w && h) {
-    const longSide = Math.max(w, h);
-    if (longSide > MAX_LONG_SIDE) {
-      if (w >= h) actions.push({ resize: { width: MAX_LONG_SIDE } });
-      else actions.push({ resize: { height: MAX_LONG_SIDE } });
-    }
-  } else {
-    actions.push({ resize: { width: MAX_LONG_SIDE } });
-  }
-
-  const result = await ImageManipulator.manipulateAsync(uri, actions, {
-    compress: JPEG_QUALITY,
-    format: ImageManipulator.SaveFormat.JPEG,
-  });
-
-  if (!result?.uri) {
-    throw new Error("Nu am putut normaliza poza (JPEG/resize).");
-  }
-
-  return result.uri;
+          <Text style={stylesObj.selectChevron}>›</Text>
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
 }
 
-async function uploadImageToSupabase({ uri, userId, meta }) {
-  if (!uri) throw new Error("Lipsește uri pentru upload.");
-  if (!userId) throw new Error("Lipsește userId pentru upload.");
-
-  const path = makeFilePath(userId);
-
-  if (Platform.OS === "web") {
-    const res = await fetch(uri);
-    if (!res.ok) throw new Error("Nu pot citi poza (fetch a eșuat).");
-
-    const blob = await res.blob();
-
-    const { error: upErr } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .upload(path, blob, { contentType: "image/jpeg", upsert: false });
-
-    if (upErr) throw upErr;
-
-    const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-    const publicUrl = data?.publicUrl || "";
-    if (!publicUrl) throw new Error("Nu am primit publicUrl pentru poză.");
-
-    return publicUrl;
+function deriveInitialCategoryPath(item) {
+  if (Array.isArray(item?.category_path) && item.category_path.length > 0) {
+    return item.category_path.filter(Boolean);
   }
 
-  const jpegUri = await normalizeToJpegMobile(uri, meta);
+  if (item?.category_key) {
+    const found = findPathByQuery(CATEGORY_TREE, String(item.category_key));
+    const exact = found.find((x) => x?.node?.key === item.category_key);
+    if (exact?.pathKeys?.length) return exact.pathKeys;
+  }
 
-  const info = await FileSystem.getInfoAsync(jpegUri);
-  if (!info?.exists) throw new Error("Fișierul JPEG nu există pe device.");
+  const categoryLabel = String(item?.category || "").trim();
+  if (!categoryLabel) return [];
 
-  const base64 = await FileSystem.readAsStringAsync(jpegUri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  if (!base64) throw new Error("Nu pot citi poza (base64 gol).");
+  const exactLabel = findPathByQuery(CATEGORY_TREE, categoryLabel).find(
+    (x) => String(x?.pathLabel || "").trim() === categoryLabel,
+  );
+  if (exactLabel?.pathKeys?.length) return exactLabel.pathKeys;
 
-  const bytes = base64ToUint8Array(base64);
+  const byLastNode = findPathByQuery(CATEGORY_TREE, categoryLabel).find(
+    (x) =>
+      String(x?.node?.label || "")
+        .trim()
+        .toLowerCase() === categoryLabel.toLowerCase(),
+  );
+  if (byLastNode?.pathKeys?.length) return byLastNode.pathKeys;
 
-  const { error: upErr } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .upload(path, bytes, { contentType: "image/jpeg", upsert: false });
+  return [];
+}
 
-  if (upErr) throw upErr;
-
-  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-  const publicUrl = data?.publicUrl || "";
-  if (!publicUrl) throw new Error("Nu am primit publicUrl pentru poză.");
-
-  return publicUrl;
+function getInitialAttributeValues(item) {
+  const attrs =
+    item?.attributes && typeof item.attributes === "object"
+      ? item.attributes
+      : {};
+  return { ...attrs };
 }
 
 export default function EditItemScreen({ navigation, route }) {
@@ -266,6 +607,11 @@ export default function EditItemScreen({ navigation, route }) {
     return Array.isArray(arr) ? arr.filter(Boolean) : [];
   }, [passedItem]);
 
+  const initialCategoryPath = useMemo(
+    () => deriveInitialCategoryPath(passedItem),
+    [passedItem],
+  );
+
   const [session, setSession] = useState(null);
 
   const [saving, setSaving] = useState(false);
@@ -278,8 +624,21 @@ export default function EditItemScreen({ navigation, route }) {
       ? String(passedItem.price)
       : "",
   );
-  const [category, setCategory] = useState(passedItem?.category || "");
-  const [images, setImages] = useState(initialImages);
+
+  const [categoryPath, setCategoryPath] = useState(initialCategoryPath);
+  const [categorySearch, setCategorySearch] = useState("");
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
+
+  const [activeAttribute, setActiveAttribute] = useState(null);
+  const [attributeValues, setAttributeValues] = useState(() =>
+    getInitialAttributeValues(passedItem),
+  );
+
+  const [localImages, setLocalImages] = useState(initialImages);
+
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const canPickMore = localImages.length < MAX_IMAGES;
 
   const itemId = useMemo(
     () => (passedItem?.id ? String(passedItem.id) : null),
@@ -336,11 +695,13 @@ export default function EditItemScreen({ navigation, route }) {
     return true;
   }, []);
 
-  const pickAndAddImages = useCallback(async () => {
-    if (uploading) return;
+  const pickImages = useCallback(async () => {
+    setErrorMsg("");
 
-    const ok = await askMediaPermission();
-    if (!ok) return;
+    if (!canPickMore) {
+      Alert.alert("Limită poze", `Maxim ${MAX_IMAGES} poze.`);
+      return;
+    }
 
     if (!userId) {
       Alert.alert("Login", "Trebuie să fii logat ca să adaugi poze.");
@@ -348,52 +709,53 @@ export default function EditItemScreen({ navigation, route }) {
       return;
     }
 
-    if (images.length >= MAX_IMAGES) {
-      Alert.alert("Limită poze", `Poți pune maxim ${MAX_IMAGES} poze.`);
-      return;
-    }
+    const ok = await askMediaPermission();
+    if (!ok) return;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      selectionLimit: MAX_IMAGES - images.length,
-      quality: 1,
-    });
-
-    if (result.canceled) return;
-
-    const assets = Array.isArray(result.assets) ? result.assets : [];
-    if (assets.length === 0) return;
-
-    setUploading(true);
     try {
-      const newUrls = [];
+      const remaining = MAX_IMAGES - localImages.length;
 
-      for (const a of assets) {
-        if (!a?.uri) continue;
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: remaining,
+        quality: 1,
+      });
 
+      if (result.canceled) return;
+
+      const assets = Array.isArray(result.assets) ? result.assets : [];
+      const next = assets
+        .map((a) => ({
+          uri: a?.uri,
+          width: a?.width,
+          height: a?.height,
+        }))
+        .filter((x) => !!x.uri);
+
+      setUploading(true);
+
+      const uploadedUrls = [];
+      for (const img of next) {
         const url = await uploadImageToSupabase({
-          uri: a.uri,
+          uri: img.uri,
           userId,
-          meta: { width: a?.width, height: a?.height },
+          meta: img,
         });
-
-        newUrls.push(url);
+        uploadedUrls.push(url);
       }
 
-      if (newUrls.length > 0) {
-        setImages((prev) => [...prev, ...newUrls].slice(0, MAX_IMAGES));
-      }
+      setLocalImages((prev) => [...prev, ...uploadedUrls].slice(0, MAX_IMAGES));
     } catch (e) {
-      console.log("❌ upload error:", e);
-      Alert.alert("Eroare upload", e?.message || "Nu am putut urca poza.");
+      console.log("❌ pick/upload error:", e);
+      Alert.alert("Eroare", e?.message || "Nu pot adăuga imagini.");
     } finally {
       setUploading(false);
     }
-  }, [askMediaPermission, uploading, images.length, navigation, userId]);
+  }, [askMediaPermission, canPickMore, localImages.length, navigation, userId]);
 
   const moveUp = useCallback((idx) => {
-    setImages((prev) => {
+    setLocalImages((prev) => {
       if (idx <= 0) return prev;
       const copy = [...prev];
       const t = copy[idx - 1];
@@ -404,7 +766,7 @@ export default function EditItemScreen({ navigation, route }) {
   }, []);
 
   const moveDown = useCallback((idx) => {
-    setImages((prev) => {
+    setLocalImages((prev) => {
       if (idx >= prev.length - 1) return prev;
       const copy = [...prev];
       const t = copy[idx + 1];
@@ -414,44 +776,227 @@ export default function EditItemScreen({ navigation, route }) {
     });
   }, []);
 
-  const removeAt = useCallback((idx) => {
-    setImages((prev) => prev.filter((_, i) => i !== idx));
+  const removeImage = useCallback((idx) => {
+    setLocalImages((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  const normalizedPrice = useMemo(() => {
+    const s = String(price || "")
+      .trim()
+      .replace(",", ".");
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }, [price]);
+
+  const categoryLabel = useMemo(() => {
+    return categoryPath.length ? getPathLabel(CATEGORY_TREE, categoryPath) : "";
+  }, [categoryPath]);
+
+  const categoryLabels = useMemo(() => {
+    return getPathLabels(CATEGORY_TREE, categoryPath);
+  }, [categoryPath]);
+
+  const categoryLeafNode = useMemo(() => {
+    return getNodeByPath(CATEGORY_TREE, categoryPath);
+  }, [categoryPath]);
+
+  const categoryLeafKey = categoryLeafNode?.key || "";
+
+  const shortCategoryLabel = useMemo(() => {
+    if (!categoryLabels.length) return "";
+    return categoryLabels[categoryLabels.length - 1];
+  }, [categoryLabels]);
+
+  const currentCategoryNodes = useMemo(() => {
+    const nodes = getNodesByPath(CATEGORY_TREE, categoryPath);
+
+    if (!categoryPath.length) {
+      return nodes.filter((node) => !shouldHideTopCategoryByNode(node));
+    }
+
+    return nodes;
+  }, [categoryPath]);
+
+  const isSearching = String(categorySearch || "").trim().length > 0;
+
+  const searchResults = useMemo(() => {
+    return findPathByQuery(CATEGORY_TREE, categorySearch)
+      .filter(
+        (item) =>
+          !shouldHideTopCategoryByPathKeys(item?.pathKeys, item?.pathLabel),
+      )
+      .slice(0, 50);
+  }, [categorySearch]);
+
+  const dynamicAttributes = useMemo(() => {
+    const candidates = [
+      categoryLeafKey,
+      ...(Array.isArray(categoryPath) ? [...categoryPath].reverse() : []),
+    ].filter(Boolean);
+
+    for (const key of candidates) {
+      const attrs = getCategoryAttributes(key);
+      if (Array.isArray(attrs) && attrs.length > 0) {
+        return attrs;
+      }
+    }
+
+    return [];
+  }, [categoryLeafKey, categoryPath]);
+
+  const activeAttributeOptions = useMemo(() => {
+    if (!activeAttribute) return [];
+    return activeAttribute.options || [];
+  }, [activeAttribute]);
+
+  const activeAttributeValue = activeAttribute
+    ? attributeValues[activeAttribute.key] || ""
+    : "";
+
+  const currentCategoryTitle = useMemo(() => {
+    if (!categoryLabels.length) return "Categorie";
+    return categoryLabels[categoryLabels.length - 1];
+  }, [categoryLabels]);
+
+  const openCategoryPicker = useCallback(() => {
+    setCategoryPickerVisible(true);
+  }, []);
+
+  const closeCategoryPicker = useCallback(() => {
+    setCategoryPickerVisible(false);
+    setCategorySearch("");
+  }, []);
+
+  const goLevelBack = useCallback(() => {
+    if (isSearching) {
+      setCategorySearch("");
+      return;
+    }
+
+    setCategoryPath((prev) => {
+      if (!prev.length) {
+        closeCategoryPicker();
+        return prev;
+      }
+      return prev.slice(0, -1);
+    });
+  }, [isSearching, closeCategoryPicker]);
+
+  const resetCategorySelection = useCallback(() => {
+    setCategoryPath([]);
+    setCategorySearch("");
+    setAttributeValues({});
+  }, []);
+
+  const onPressCategoryNode = useCallback((node) => {
+    if (!node?.key) return;
+
+    setCategoryPath((prev) => {
+      const nextPath = [...prev, node.key];
+
+      if (isLeafNode(CATEGORY_TREE, nextPath)) {
+        const currentLeaf = prev.join("|");
+        const nextLeaf = nextPath.join("|");
+
+        setCategoryPickerVisible(false);
+        setCategorySearch("");
+
+        if (currentLeaf !== nextLeaf) {
+          setAttributeValues({});
+        }
+
+        return nextPath;
+      }
+
+      return nextPath;
+    });
+  }, []);
+
+  const onPressSearchResult = useCallback(
+    (item) => {
+      if (!item?.pathKeys?.length) return;
+
+      const currentLeaf = categoryPath.join("|");
+      const nextLeaf = item.pathKeys.join("|");
+
+      setCategoryPath(item.pathKeys);
+      setCategoryPickerVisible(false);
+      setCategorySearch("");
+
+      if (currentLeaf !== nextLeaf) {
+        setAttributeValues({});
+      }
+    },
+    [categoryPath],
+  );
+
+  const openAttributePicker = useCallback((attribute) => {
+    setActiveAttribute(attribute);
+  }, []);
+
+  const closeAttributePicker = useCallback(() => {
+    setActiveAttribute(null);
+  }, []);
+
+  const selectAttributeOption = useCallback((attributeKey, value) => {
+    setAttributeValues((prev) => ({
+      ...prev,
+      [attributeKey]: value,
+    }));
+    setActiveAttribute(null);
   }, []);
 
   const onSave = useCallback(async () => {
+    setErrorMsg("");
+
     if (!itemId) {
       Alert.alert("Eroare", "Nu am itemId.");
       return;
     }
 
-    const t = String(title || "").trim();
-    if (!t) {
-      Alert.alert("Titlu", "Scrie un titlu.");
+    if (!title.trim()) {
+      setErrorMsg("Titlul e obligatoriu.");
       return;
     }
 
-    const p = String(price || "")
-      .trim()
-      .replace(",", ".");
-    const priceNum = p === "" ? null : Number(p);
-
-    if (p !== "" && Number.isNaN(priceNum)) {
-      Alert.alert("Preț", "Prețul trebuie să fie număr.");
+    if (!description.trim()) {
+      setErrorMsg("Descrierea e obligatorie.");
       return;
+    }
+
+    if (normalizedPrice == null) {
+      setErrorMsg("Preț invalid.");
+      return;
+    }
+
+    if (!categoryLabel.trim()) {
+      setErrorMsg("Categoria e obligatorie.");
+      return;
+    }
+
+    for (const attribute of dynamicAttributes) {
+      if (!attributeValues[attribute.key]) {
+        setErrorMsg(`Câmp obligatoriu: ${attribute.label}.`);
+        return;
+      }
     }
 
     setSaving(true);
+
     try {
       const payload = {
-        title: t,
-        description: String(description || ""),
-        price: priceNum,
-        category: String(category || ""),
-        images,
+        title: title.trim(),
+        description: description.trim(),
+        price: normalizedPrice,
+        category: categoryLabel.trim(),
+        category_key: categoryLeafKey || null,
+        category_path: categoryPath,
+        attributes: attributeValues,
+        images: localImages,
       };
 
       const removedImages = initialImages.filter(
-        (oldUrl) => !images.includes(oldUrl),
+        (oldUrl) => !localImages.includes(oldUrl),
       );
       const removedPaths = getStoragePathsFromImages(
         removedImages,
@@ -494,9 +1039,13 @@ export default function EditItemScreen({ navigation, route }) {
     itemId,
     title,
     description,
-    price,
-    category,
-    images,
+    normalizedPrice,
+    categoryLabel,
+    categoryLeafKey,
+    categoryPath,
+    dynamicAttributes,
+    attributeValues,
+    localImages,
     initialImages,
     passedItem,
     goToMyItemsWithUpdate,
@@ -517,7 +1066,7 @@ export default function EditItemScreen({ navigation, route }) {
             await deleteItemWithImages(
               {
                 ...passedItem,
-                images,
+                images: localImages,
                 id: passedItem.id,
               },
               STORAGE_BUCKET,
@@ -537,7 +1086,7 @@ export default function EditItemScreen({ navigation, route }) {
         },
       },
     ]);
-  }, [itemId, passedItem, images, goToMyItemsWithUpdate]);
+  }, [itemId, passedItem, localImages, goToMyItemsWithUpdate]);
 
   if (!passedItem) {
     return (
@@ -563,7 +1112,10 @@ export default function EditItemScreen({ navigation, route }) {
           paddingHorizontal: 16,
         }}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        onScrollBeginDrag={Keyboard.dismiss}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
       >
         <TextInput
           value={title}
@@ -578,91 +1130,134 @@ export default function EditItemScreen({ navigation, route }) {
           onChangeText={setDescription}
           placeholder="Descriere"
           placeholderTextColor={S.placeholder.color}
-          style={[S.input, S.textArea]}
+          style={[S.input, S.textarea]}
           multiline
         />
 
         <TextInput
           value={price}
           onChangeText={setPrice}
-          placeholder="Preț"
+          placeholder="Preț (ex: 120)"
           placeholderTextColor={S.placeholder.color}
           style={S.input}
-          keyboardType={Platform.OS === "ios" ? "number-pad" : "numeric"}
+          keyboardType="numeric"
         />
 
-        <TextInput
-          value={category}
-          onChangeText={setCategory}
-          placeholder="Categorie"
-          placeholderTextColor={S.placeholder.color}
-          style={S.input}
-        />
+        <View style={S.attrBlock}>
+          <Text style={S.attrLabel}>Categorie</Text>
+
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={openCategoryPicker}
+            style={S.selectInput}
+            disabled={saving || uploading}
+          >
+            <View style={S.selectInputContent}>
+              <Text
+                style={[
+                  S.selectInputValue,
+                  !shortCategoryLabel && S.selectInputPlaceholder,
+                ]}
+                numberOfLines={2}
+              >
+                {shortCategoryLabel || "Alege categoria"}
+              </Text>
+              <Text style={S.selectChevron}>›</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {dynamicAttributes.length > 0 && (
+          <View style={S.dynamicSection}>
+            <Text style={S.dynamicSectionTitle}>Detalii categorie</Text>
+
+            {dynamicAttributes.map((attribute) => {
+              const value = attributeValues[attribute.key] || "";
+              const displayValue = getOptionLabel(attribute.options, value);
+
+              return (
+                <AttributeSelectField
+                  key={attribute.key}
+                  label={attribute.label}
+                  value={value}
+                  displayValue={displayValue}
+                  placeholder={attribute.placeholder}
+                  onPress={() => openAttributePicker(attribute)}
+                  stylesObj={S}
+                />
+              );
+            })}
+          </View>
+        )}
 
         <TouchableOpacity
-          onPress={pickAndAddImages}
           activeOpacity={0.9}
-          style={[S.addPhotosBtn, uploading && { opacity: 0.7 }]}
-          disabled={uploading}
+          onPress={pickImages}
+          style={[S.pickBtn, (saving || uploading) && { opacity: 0.7 }]}
+          disabled={saving || uploading}
         >
           {uploading ? (
             <ActivityIndicator color={onPrimaryColor} />
           ) : (
-            <Text style={S.addPhotosText}>
-              Adaugă poze ({images.length}/{MAX_IMAGES})
+            <Text style={S.pickText}>
+              Alege imagini ({localImages.length}/{MAX_IMAGES})
             </Text>
           )}
         </TouchableOpacity>
 
-        <View style={S.grid}>
-          {images.map((uri, idx) => (
-            <View key={`${uri}-${idx}`} style={S.tile}>
-              <Image source={{ uri }} style={S.tileImg} resizeMode="cover" />
+        {localImages.length > 0 && (
+          <View style={S.imagesGrid}>
+            {localImages.map((uri, idx) => (
+              <View key={`${uri}-${idx}`} style={S.tile}>
+                <Image source={{ uri }} style={S.tileImg} resizeMode="cover" />
 
-              <View style={S.tileActions}>
-                <TouchableOpacity
-                  onPress={() => moveUp(idx)}
-                  style={[S.actionBtn, idx === 0 && S.actionDisabled]}
-                  disabled={idx === 0}
-                  activeOpacity={0.9}
-                >
-                  <Text style={S.actionText}>↑</Text>
-                </TouchableOpacity>
+                <View style={S.tileActions}>
+                  <TouchableOpacity
+                    onPress={() => moveUp(idx)}
+                    style={[S.actionBtn, idx === 0 && S.actionDisabled]}
+                    disabled={idx === 0}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={S.actionText}>↑</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  onPress={() => moveDown(idx)}
-                  style={[
-                    S.actionBtn,
-                    idx === images.length - 1 && S.actionDisabled,
-                  ]}
-                  disabled={idx === images.length - 1}
-                  activeOpacity={0.9}
-                >
-                  <Text style={S.actionText}>↓</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => moveDown(idx)}
+                    style={[
+                      S.actionBtn,
+                      idx === localImages.length - 1 && S.actionDisabled,
+                    ]}
+                    disabled={idx === localImages.length - 1}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={S.actionText}>↓</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  onPress={() => removeAt(idx)}
-                  style={[S.actionBtn, S.actionDelete]}
-                  activeOpacity={0.9}
-                >
-                  <Text style={S.actionText}>✕</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => removeImage(idx)}
+                    style={[S.actionBtn, S.actionDelete]}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={S.actionText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          ))}
-        </View>
+            ))}
+          </View>
+        )}
+
+        {!!errorMsg && <Text style={S.err}>{errorMsg}</Text>}
 
         <TouchableOpacity
           onPress={onSave}
           activeOpacity={0.9}
-          style={[S.primaryBtn, saving && { opacity: 0.7 }]}
+          style={[S.pubBtn, saving && { opacity: 0.7 }]}
           disabled={saving}
         >
           {saving ? (
             <ActivityIndicator color={onPrimaryColor} />
           ) : (
-            <Text style={S.primaryText}>Salvează</Text>
+            <Text style={S.pubText}>Salvează</Text>
           )}
         </TouchableOpacity>
 
@@ -675,6 +1270,184 @@ export default function EditItemScreen({ navigation, route }) {
           <Text style={S.deleteText}>Șterge anunțul</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <Modal
+        visible={categoryPickerVisible}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={closeCategoryPicker}
+      >
+        <View style={S.fullscreenModal}>
+          <HeaderBackButton onPress={goLevelBack} top={insets.top + 10} />
+
+          <ScrollView
+            contentContainerStyle={[
+              S.fullscreenContent,
+              {
+                paddingTop: insets.top + 10 + HEADER_BACK_SIZE + 18,
+                paddingBottom: Math.max(insets.bottom, 16) + 24,
+              },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={S.fullscreenTitle}>{currentCategoryTitle}</Text>
+
+            <TextInput
+              value={categorySearch}
+              onChangeText={setCategorySearch}
+              placeholder="Găsește o categorie"
+              placeholderTextColor={S.placeholder.color}
+              style={S.searchInput}
+            />
+
+            {isSearching ? (
+              searchResults.length > 0 ? (
+                searchResults.map((item) => {
+                  const pathLabels = String(item?.pathLabel || "")
+                    .split(">")
+                    .map((x) => x.trim())
+                    .filter(Boolean);
+
+                  const displayLabel = getDisplayCategoryLabel(
+                    item.node?.label,
+                    pathLabels,
+                    item?.pathKeys || [],
+                  );
+
+                  return (
+                    <TouchableOpacity
+                      key={item.pathLabel}
+                      activeOpacity={0.88}
+                      onPress={() => onPressSearchResult(item)}
+                      style={S.optionRow}
+                    >
+                      <CategoryLeadingVisual
+                        label={item.node?.label}
+                        pathLabels={pathLabels}
+                        nextPath={item?.pathKeys || []}
+                        stylesObj={S}
+                      />
+
+                      <View style={S.optionTextWrap}>
+                        <Text style={S.optionText}>{displayLabel}</Text>
+                        <Text style={S.optionSubtext}>{item.pathLabel}</Text>
+                      </View>
+
+                      <Text style={S.optionChevron}>›</Text>
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                <View style={S.emptyState}>
+                  <Text style={S.emptyStateTitle}>Nicio categorie găsită</Text>
+                  <Text style={S.emptyStateText}>
+                    Încearcă un termen mai scurt sau navighează manual.
+                  </Text>
+                </View>
+              )
+            ) : currentCategoryNodes.length > 0 ? (
+              currentCategoryNodes.map((node) => {
+                const nextPath = [...categoryPath, node.key];
+                const nextPathLabels = getPathLabels(CATEGORY_TREE, nextPath);
+                const displayLabel = getDisplayCategoryLabel(
+                  node.label,
+                  nextPathLabels,
+                  nextPath,
+                );
+
+                return (
+                  <TouchableOpacity
+                    key={node.key}
+                    activeOpacity={0.88}
+                    onPress={() => onPressCategoryNode(node)}
+                    style={S.optionRow}
+                  >
+                    <CategoryLeadingVisual
+                      label={node.label}
+                      pathLabels={nextPathLabels}
+                      nextPath={nextPath}
+                      stylesObj={S}
+                    />
+
+                    <View style={S.optionTextWrap}>
+                      <Text style={S.optionText}>{displayLabel}</Text>
+                    </View>
+
+                    <Text style={S.optionChevron}>›</Text>
+                  </TouchableOpacity>
+                );
+              })
+            ) : (
+              <View style={S.emptyState}>
+                <Text style={S.emptyStateTitle}>Nivel final atins</Text>
+                <Text style={S.emptyStateText}>
+                  Categoria selectată este gata.
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={resetCategorySelection}
+              style={S.resetBtn}
+            >
+              <Text style={S.resetBtnText}>Resetează selecția</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!activeAttribute}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={closeAttributePicker}
+      >
+        <View style={S.fullscreenModal}>
+          <HeaderBackButton
+            onPress={closeAttributePicker}
+            top={insets.top + 10}
+          />
+
+          <ScrollView
+            contentContainerStyle={[
+              S.fullscreenContent,
+              {
+                paddingTop: insets.top + 10 + HEADER_BACK_SIZE + 18,
+                paddingBottom: Math.max(insets.bottom, 16) + 24,
+              },
+            ]}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={S.fullscreenTitle}>
+              {activeAttribute?.label || "Selectează"}
+            </Text>
+
+            {activeAttributeOptions.map((option) => {
+              const selected = activeAttributeValue === option.value;
+
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  activeOpacity={0.88}
+                  onPress={() =>
+                    selectAttributeOption(activeAttribute.key, option.value)
+                  }
+                  style={S.optionRow}
+                >
+                  <View style={S.optionTextWrap}>
+                    <Text style={S.optionText}>{option.label}</Text>
+                  </View>
+                  <Text style={[S.optionChevron, selected && S.optionSelected]}>
+                    {selected ? "✓" : "›"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -684,61 +1457,143 @@ function makeStyles(tokens) {
   const card = pickTok(tokens, "card", "#FFFFFF");
   const text = pickTok(tokens, "text", "#111827");
   const muted = pickTok(tokens, "muted", pickTok(tokens, "subtext", "#6B7280"));
-  const border = pickTok(tokens, "border", "rgba(0,0,0,0.08)");
+  const border = pickTok(tokens, "border", "rgba(0,0,0,0.12)");
   const primary = pickTok(
     tokens,
     "primary",
     pickTok(tokens, "accent", "#2563EB"),
   );
+  const primarySoft = pickTok(tokens, "primarySoft", "rgba(37,99,235,0.10)");
   const danger = pickTok(tokens, "danger", "#EF4444");
   const onPrimary = pickTok(tokens, "onPrimary", "#FFFFFF");
+  const cardMuted = pickTok(tokens, "cardMuted", primarySoft);
+  const dim = pickTok(tokens, "dim", "rgba(0,0,0,0.55)");
 
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: bg },
 
+    h1: {
+      fontSize: 18,
+      fontWeight: "900",
+      color: text,
+    },
+
+    mutedText: {
+      marginTop: 8,
+      color: muted,
+      fontWeight: "700",
+      textAlign: "center",
+    },
+
+    center: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+    },
+
     placeholder: { color: muted },
 
     input: {
-      height: 52,
-      borderRadius: 14,
       borderWidth: 1,
       borderColor: border,
+      borderRadius: 14,
       paddingHorizontal: 14,
+      paddingVertical: 12,
       fontSize: 16,
       fontWeight: "700",
-      color: text,
-      marginBottom: 14,
       backgroundColor: card,
+      color: text,
+      marginBottom: 12,
     },
 
-    textArea: {
-      height: 120,
-      paddingTop: 14,
+    textarea: {
+      minHeight: 110,
       textAlignVertical: "top",
     },
 
-    addPhotosBtn: {
-      height: 56,
-      borderRadius: 16,
+    attrBlock: {
+      marginBottom: 12,
+    },
+
+    attrLabel: {
+      color: text,
+      fontSize: 14,
+      fontWeight: "800",
+      marginBottom: 8,
+      paddingHorizontal: 2,
+    },
+
+    selectInput: {
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 14,
       backgroundColor: card,
+    },
+
+    selectInputContent: {
+      minHeight: 56,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+
+    selectInputValue: {
+      flex: 1,
+      fontSize: 16,
+      fontWeight: "800",
+      color: text,
+    },
+
+    selectInputPlaceholder: {
+      color: muted,
+      fontWeight: "700",
+    },
+
+    selectChevron: {
+      fontSize: 26,
+      lineHeight: 26,
+      color: muted,
+      marginTop: -1,
+    },
+
+    dynamicSection: {
+      marginBottom: 6,
+    },
+
+    dynamicSectionTitle: {
+      fontSize: 17,
+      fontWeight: "900",
+      color: text,
+      marginBottom: 10,
+      marginTop: 2,
+    },
+
+    pickBtn: {
+      height: 52,
+      borderRadius: 14,
+      backgroundColor: primarySoft,
+      borderWidth: 1,
+      borderColor: border,
       alignItems: "center",
       justifyContent: "center",
       marginTop: 6,
-      marginBottom: 14,
-      borderWidth: 1,
-      borderColor: border,
     },
 
-    addPhotosText: {
-      fontSize: 18,
+    pickText: {
       fontWeight: "900",
+      fontSize: 16,
       color: primary,
     },
 
-    grid: {
+    imagesGrid: {
       flexDirection: "row",
       flexWrap: "wrap",
       gap: 12,
+      marginTop: 12,
       marginBottom: 18,
     },
 
@@ -786,24 +1641,31 @@ function makeStyles(tokens) {
       fontWeight: "900",
     },
 
-    primaryBtn: {
-      height: 58,
-      borderRadius: 16,
+    err: {
+      marginTop: 10,
+      color: danger,
+      fontWeight: "900",
+      fontSize: 14,
+    },
+
+    pubBtn: {
+      marginTop: 14,
+      height: 56,
+      borderRadius: 14,
       backgroundColor: primary,
       alignItems: "center",
       justifyContent: "center",
-      marginTop: 6,
     },
 
-    primaryText: {
+    pubText: {
       color: onPrimary,
       fontWeight: "900",
-      fontSize: 20,
+      fontSize: 18,
     },
 
     deleteBtn: {
-      height: 58,
-      borderRadius: 16,
+      height: 56,
+      borderRadius: 14,
       backgroundColor: danger,
       alignItems: "center",
       justifyContent: "center",
@@ -816,24 +1678,162 @@ function makeStyles(tokens) {
       fontSize: 18,
     },
 
-    center: {
+    fullscreenModal: {
       flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      padding: 16,
+      backgroundColor: bg,
     },
 
-    h1: {
-      fontSize: 18,
+    fullscreenContent: {
+      paddingHorizontal: 16,
+      backgroundColor: bg,
+    },
+
+    fullscreenTitle: {
+      fontSize: 28,
       fontWeight: "900",
+      textAlign: "center",
+      marginBottom: 16,
       color: text,
     },
 
-    mutedText: {
-      marginTop: 8,
-      color: muted,
+    searchInput: {
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 13,
+      fontSize: 16,
       fontWeight: "700",
+      backgroundColor: card,
+      color: text,
+      marginBottom: 12,
+    },
+
+    optionRow: {
+      minHeight: 73,
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 18,
+      backgroundColor: card,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 6,
+      paddingHorizontal: 16,
+      marginBottom: 10,
+    },
+
+    optionLeadingSlot: {
+      width: 86,
+      minWidth: 86,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    optionLeadingSpacer: {
+      width: 14,
+      minWidth: 14,
+    },
+
+    optionEmoji: {
+      fontSize: 24,
+      lineHeight: 28,
+      width: 32,
       textAlign: "center",
+    },
+
+    optionImageWrap: {
+      width: 58,
+      height: 58,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+      borderRadius: 14,
+    },
+
+    optionImage: {
+      width: 58,
+      height: 58,
+    },
+
+    optionImageWrapFashionUnified: {
+      width: 40,
+      height: 40,
+    },
+
+    optionImageFashionUnified: {
+      width: 40,
+      height: 40,
+    },
+
+    optionTextWrap: {
+      flex: 1,
+      paddingVertical: 14,
+      justifyContent: "center",
+    },
+
+    optionText: {
+      color: text,
+      fontSize: 16,
+      lineHeight: 21,
+      fontWeight: "700",
+    },
+
+    optionSubtext: {
+      color: muted,
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: "700",
+      marginTop: 4,
+    },
+
+    optionChevron: {
+      fontSize: 28,
+      lineHeight: 28,
+      color: muted,
+      marginTop: -2,
+    },
+
+    optionSelected: {
+      color: primary,
+      fontSize: 22,
+      fontWeight: "900",
+    },
+
+    emptyState: {
+      paddingTop: 26,
+      paddingHorizontal: 4,
+    },
+
+    emptyStateTitle: {
+      color: text,
+      fontSize: 18,
+      fontWeight: "900",
+      marginBottom: 8,
+    },
+
+    emptyStateText: {
+      color: muted,
+      fontSize: 15,
+      lineHeight: 22,
+      fontWeight: "700",
+    },
+
+    resetBtn: {
+      marginTop: 10,
+      height: 54,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: border,
+      backgroundColor: card,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    resetBtnText: {
+      color: primary,
+      fontSize: 16,
+      fontWeight: "900",
     },
   });
 }

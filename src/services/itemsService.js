@@ -122,6 +122,7 @@ export async function fetchItems() {
   let query = supabase
     .from("items")
     .select("*")
+    .eq("status", "active")
     .order("created_at", { ascending: false });
 
   if (vacationModeEnabled && currentUserId) {
@@ -184,6 +185,7 @@ export async function fetchMoreFromSeller({
     .from("items")
     .select("*")
     .eq("user_id", sellerId)
+    .eq("status", "active")
     .order("created_at", { ascending: false })
     .limit(limit + 1);
 
@@ -210,6 +212,7 @@ export async function fetchSimilarItems({
     .from("items")
     .select("*")
     .eq("category", category)
+    .eq("status", "active")
     .order("created_at", { ascending: false })
     .limit(limit + 1);
 

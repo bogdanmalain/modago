@@ -2,21 +2,26 @@
 // ================================
 // ORDERSSCREEN
 // ================================
-// CE ESTE:
-// -> ecran placeholder pentru Comenzile mele
-//
-// MODIFICĂRI:
-// -> ecran nou, theme-aware
-// -> back corect
-// -> empty state pregătit pentru integrare ulterioară
+// Lista comenzilor utilizatorului curent (cumpărate / vândute),
+// cu navigare spre OrderStatusScreen pentru fiecare comandă.
 
-import React, { useCallback, useContext, useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+  Image,
+  ActivityIndicator,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ROUTES } from "../navigation/routes";
 import { ThemeContext } from "../theme/ThemeProvider";
+import { getMyOrders } from "../services/orderService";
+import { ORDER_STATUS_LABELS } from "../types/escrow";
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -28,6 +33,25 @@ export default function OrdersScreen({ navigation }) {
   const { tokens } = useContext(ThemeContext);
   const S = useMemo(() => makeStyles(tokens), [tokens]);
 
+  const [tab, setTab] = useState("asBuyer");
+  const [orders, setOrders] = useState({ asBuyer: [], asSeller: [] });
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await getMyOrders();
+      setOrders(data);
+    } catch (e) {
+      // ecranul rămâne pe empty state dacă preluarea eșuează
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
   const goBackSafe = useCallback(() => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -35,6 +59,39 @@ export default function OrdersScreen({ navigation }) {
     }
     navigation.navigate("TabsRoot", { screen: ROUTES.Profile });
   }, [navigation]);
+
+  const list = orders[tab];
+
+  const renderItem = useCallback(
+    ({ item: order }) => (
+      <TouchableOpacity
+        style={S.orderCard}
+        activeOpacity={0.85}
+        onPress={() =>
+          navigation.navigate(ROUTES.OrderStatus, {
+            orderId: order.id,
+            itemTitle: order.item?.title,
+          })
+        }
+      >
+        <Image
+          source={{ uri: order.item?.images?.[0] ?? "https://via.placeholder.com/64" }}
+          style={S.orderImage}
+        />
+        <View style={S.orderInfo}>
+          <Text style={S.orderTitle} numberOfLines={1}>
+            {order.item?.title ?? "Produs"}
+          </Text>
+          <Text style={S.orderStatus}>
+            {ORDER_STATUS_LABELS[order.status] ?? order.status}
+          </Text>
+        </View>
+        <Text style={S.orderPrice}>{order.price_mdl} MDL</Text>
+        <Ionicons name="chevron-forward" size={18} color={S.__colors.muted} />
+      </TouchableOpacity>
+    ),
+    [S, navigation],
+  );
 
   return (
     <View style={S.screen}>
@@ -49,16 +106,51 @@ export default function OrdersScreen({ navigation }) {
           <View style={S.headerSpacer} />
         </View>
 
-        <View style={S.emptyCard}>
-          <View style={S.emptyIconWrap}>
-            <Ionicons name="receipt-outline" size={28} color={S.__colors.primary} />
-          </View>
-
-          <Text style={S.emptyTitle}>Nu ai comenzi încă</Text>
-          <Text style={S.emptyText}>
-            Când legăm fluxul de cumpărare, aici vor apărea comenzile tale.
-          </Text>
+        <View style={S.tabs}>
+          <TouchableOpacity
+            style={[S.tabBtn, tab === "asBuyer" && S.tabBtnActive]}
+            onPress={() => setTab("asBuyer")}
+          >
+            <Text style={[S.tabText, tab === "asBuyer" && S.tabTextActive]}>
+              Cumpărate
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[S.tabBtn, tab === "asSeller" && S.tabBtnActive]}
+            onPress={() => setTab("asSeller")}
+          >
+            <Text style={[S.tabText, tab === "asSeller" && S.tabTextActive]}>
+              Vândute
+            </Text>
+          </TouchableOpacity>
         </View>
+
+        {loading ? (
+          <ActivityIndicator
+            color={S.__colors.primary}
+            style={{ marginTop: 32 }}
+          />
+        ) : list.length === 0 ? (
+          <View style={S.emptyCard}>
+            <View style={S.emptyIconWrap}>
+              <Ionicons name="receipt-outline" size={28} color={S.__colors.primary} />
+            </View>
+            <Text style={S.emptyTitle}>Nu ai comenzi încă</Text>
+            <Text style={S.emptyText}>
+              {tab === "asBuyer"
+                ? "Comenzile pe care le plasezi vor apărea aici."
+                : "Comenzile primite de la cumpărători vor apărea aici."}
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={list}
+            keyExtractor={(o) => o.id}
+            renderItem={renderItem}
+            contentContainerStyle={{ gap: 10, paddingBottom: 24 }}
+            showsVerticalScrollIndicator={false}
+          />
+        )}
       </View>
     </View>
   );
@@ -73,7 +165,7 @@ function makeStyles(tokens) {
   const primary = pickTok(tokens, "primary", "#2EC4B6");
 
   return StyleSheet.create({
-    __colors: { text, primary },
+    __colors: { text, primary, muted },
 
     screen: {
       flex: 1,
@@ -112,6 +204,68 @@ function makeStyles(tokens) {
 
     headerSpacer: {
       width: 44,
+    },
+
+    tabs: {
+      flexDirection: "row",
+      gap: 8,
+      marginBottom: 16,
+    },
+    tabBtn: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: 12,
+      alignItems: "center",
+      backgroundColor: card,
+      borderWidth: 1,
+      borderColor: border,
+    },
+    tabBtnActive: {
+      backgroundColor: primary,
+      borderColor: primary,
+    },
+    tabText: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: muted,
+    },
+    tabTextActive: {
+      color: "#FFFFFF",
+    },
+
+    orderCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      padding: 12,
+      borderRadius: 16,
+      backgroundColor: card,
+      borderWidth: 1,
+      borderColor: border,
+    },
+    orderImage: {
+      width: 52,
+      height: 52,
+      borderRadius: 10,
+      backgroundColor: bg,
+    },
+    orderInfo: {
+      flex: 1,
+      gap: 3,
+    },
+    orderTitle: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: text,
+    },
+    orderStatus: {
+      fontSize: 12,
+      color: muted,
+    },
+    orderPrice: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: primary,
     },
 
     emptyCard: {

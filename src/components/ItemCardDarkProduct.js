@@ -1,12 +1,12 @@
 // src/components/ItemCardDarkProduct.js
 // COMPONENTĂ: ItemCardDarkProduct
 // MODIFICARE:
-// - ANDROID FIX: body mai stabil și fonturi puțin ajustate ca textul să nu mai iasă din card
-// - ANDROID FIX: favorite circle puțin mai mic
-// - păstrat iOS neschimbat
-// - restul flow-ului rămâne neschimbat
+// - am schimbat afișarea prețului din Home din RON în MDL
+// - am păstrat formatările existente pentru mărimile copiilor, brand și stare
+// - restul layout-ului și flow-ul existent rămân neschimbate
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   View,
   Text,
@@ -33,6 +33,7 @@ function toPriceNumber(value) {
   const cleaned = String(value ?? "")
     .replace(/\s/g, "")
     .replace("RON", "")
+    .replace("MDL", "")
     .replace("Lei", "")
     .replace("lei", "")
     .replace(/\./g, "")
@@ -42,9 +43,9 @@ function toPriceNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function formatRon(value) {
+function formatPrice(value) {
   const n = Number(value || 0);
-  return `${n.toFixed(2).replace(".", ",")} RON`;
+  return `${n.toFixed(2).replace(".", ",")} MDL`;
 }
 
 function calculateBuyerProtectionFee(price) {
@@ -57,6 +58,135 @@ function calculateShippingFrom(price) {
   if (p >= 300) return 11.99;
   if (p >= 150) return 8.89;
   return 6.99;
+}
+
+function normalizeMetaValue(value) {
+  if (value === null || value === undefined) return "";
+  const text = String(value).trim();
+  if (!text) return "";
+
+  const lowered = text.toLowerCase();
+  if (lowered === "null" || lowered === "undefined") return "";
+
+  return text;
+}
+
+function toTitleCase(value) {
+  const text = normalizeMetaValue(value);
+  if (!text) return "";
+
+  return text
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function formatKidsSizeLabel(value) {
+  const text = normalizeMetaValue(value);
+  if (!text) return "";
+
+  const normalized = text.replace(/\s+/g, "").replace(/_/g, "-");
+
+  const map = {
+    "50-56": "0-2 luni / 50-56",
+    "62-68": "3-6 luni / 62-68",
+    "74-80": "6-12 luni / 74-80",
+    "86-92": "1-2 ani / 86-92",
+    "98-104": "2-4 ani / 98-104",
+    "110-116": "5 ani / 110-116",
+    "122-128": "6-8 ani / 122-128",
+    "134-140": "8-10 ani / 134-140",
+    "146-152": "10-12 ani / 146-152",
+    "158-164": "12-14 ani / 158-164",
+  };
+
+  return map[normalized] || normalized;
+}
+
+function formatDisplaySize(value, item) {
+  const text = normalizeMetaValue(value);
+  if (!text) return "";
+
+  const category = String(item?.category || "").toLowerCase();
+  const isKids = category.includes("copii");
+
+  if (isKids) {
+    return formatKidsSizeLabel(text);
+  }
+
+  return text.toUpperCase();
+}
+
+function formatConditionLabel(value) {
+  const raw = normalizeMetaValue(value);
+  if (!raw) return "";
+
+  const key = raw.toLowerCase().replace(/\s+/g, "_");
+
+  const map = {
+    new_with_tags: "Nou cu etichetă",
+    new_without_tags: "Nou fără etichetă",
+    very_good: "Foarte bună",
+    good: "Bună",
+    satisfactory: "Satisfăcătoare",
+    used: "Folosită",
+  };
+
+  if (map[key]) return map[key];
+
+  return raw
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/^\p{L}/u, (c) => c.toUpperCase());
+}
+
+function pickItemMeta(item, directKeys = [], attributeKeys = []) {
+  for (const key of directKeys) {
+    const value = normalizeMetaValue(item?.[key]);
+    if (value) return value;
+  }
+
+  const attrs =
+    item?.attributes && typeof item.attributes === "object"
+      ? item.attributes
+      : null;
+
+  if (!attrs) return "";
+
+  for (const key of attributeKeys) {
+    const value = normalizeMetaValue(attrs?.[key]);
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function getMetaRows(item) {
+  const brandRaw = pickItemMeta(item, ["brand"], ["brand", "Brand"]);
+  const sizeRaw = pickItemMeta(
+    item,
+    ["size"],
+    ["size", "Size", "mărime", "marime", "Mărime", "Marime"],
+  );
+  const conditionRaw = pickItemMeta(
+    item,
+    ["condition", "state"],
+    ["condition", "Condition", "state", "State", "stare", "Stare"],
+  );
+
+  const brand = toTitleCase(brandRaw);
+  const size = formatDisplaySize(sizeRaw, item);
+  const condition = formatConditionLabel(conditionRaw);
+
+  const secondRow = [size, condition].filter(Boolean).join(" · ");
+
+  return {
+    brand,
+    secondRow,
+    hasAny: Boolean(brand || secondRow),
+  };
 }
 
 export default function ItemCardDarkProduct({
@@ -113,6 +243,8 @@ export default function ItemCardDarkProduct({
       ),
     [numericPrice, buyerProtectionFee],
   );
+
+  const metaRows = useMemo(() => getMetaRows(item), [item]);
 
   useEffect(() => {
     if (!isFav) return;
@@ -214,6 +346,17 @@ export default function ItemCardDarkProduct({
                 </Text>
               </View>
             )}
+            <LinearGradient
+              colors={["transparent", "rgba(0,0,0,0.35)"]}
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 50,
+              }}
+              pointerEvents="none"
+            />
             {dots}
           </View>
 
@@ -278,6 +421,39 @@ export default function ItemCardDarkProduct({
               </View>
             </View>
 
+            {metaRows.hasAny ? (
+              <View style={styles.detailsBlock}>
+                {metaRows.brand ? (
+                  <Text
+                    style={[
+                      styles.detailsLineTop,
+                      { color: muted },
+                      Platform.OS === "android" && styles.detailsLineTopAndroid,
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {metaRows.brand}
+                  </Text>
+                ) : null}
+
+                {metaRows.secondRow ? (
+                  <Text
+                    style={[
+                      styles.detailsLineBottom,
+                      { color: muted },
+                      Platform.OS === "android" &&
+                        styles.detailsLineBottomAndroid,
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {metaRows.secondRow}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+
             <Pressable onPress={openPriceSheet} hitSlop={6}>
               <Text
                 style={[
@@ -287,8 +463,8 @@ export default function ItemCardDarkProduct({
                 ]}
               >
                 {numericPrice !== null
-                  ? formatRon(numericPrice)
-                  : `${item?.price} lei`}
+                  ? formatPrice(numericPrice)
+                  : `${item?.price} MDL`}
               </Text>
 
               {numericPrice !== null ? (
@@ -300,18 +476,18 @@ export default function ItemCardDarkProduct({
                       Platform.OS === "android" && styles.inclTextAndroid,
                     ]}
                   >
-                    {formatRon(totalIncl)} incl.
+                    {formatPrice(totalIncl)} incl.
                   </Text>
 
                   <View style={styles.inclIcons}>
                     <Ionicons
                       name="shield-checkmark-outline"
-                      size={14}
+                      size={13}
                       color={primary}
                     />
                     <Ionicons
                       name="information-circle-outline"
-                      size={15}
+                      size={14}
                       color={primary}
                     />
                   </View>
@@ -440,8 +616,8 @@ export default function ItemCardDarkProduct({
                     </View>
                     <Text style={[styles.breakdownValue, { color: text }]}>
                       {numericPrice !== null
-                        ? formatRon(numericPrice)
-                        : `${item?.price || "-"} lei`}
+                        ? formatPrice(numericPrice)
+                        : `${item?.price || "-"} MDL`}
                     </Text>
                   </View>
 
@@ -496,7 +672,7 @@ export default function ItemCardDarkProduct({
                     </View>
 
                     <Text style={[styles.breakdownValue, { color: text }]}>
-                      {formatRon(buyerProtectionFee)}
+                      {formatPrice(buyerProtectionFee)}
                     </Text>
                   </View>
 
@@ -529,7 +705,7 @@ export default function ItemCardDarkProduct({
                       </Text>
                     </View>
                     <Text style={[styles.breakdownValue, { color: text }]}>
-                      de la {formatRon(shippingFrom)}
+                      de la {formatPrice(shippingFrom)}
                     </Text>
                   </View>
                 </View>
@@ -548,12 +724,12 @@ export default function ItemCardDarkProduct({
                       Total estimat
                     </Text>
                     <Text style={[styles.totalValue, { color: primary }]}>
-                      {formatRon(totalIncl)}
+                      {formatPrice(totalIncl)}
                     </Text>
                   </View>
 
                   <Text style={[styles.totalSubtext, { color: muted }]}>
-                    {formatRon(totalIncl)} + livrarea selectată la checkout.
+                    {formatPrice(totalIncl)} + livrarea selectată la checkout.
                   </Text>
                 </View>
 
@@ -771,7 +947,7 @@ const styles = StyleSheet.create({
   bodyAndroid: {
     paddingTop: 11,
     paddingBottom: 13,
-    minHeight: 146,
+    minHeight: 170,
   },
   titleRow: {
     flexDirection: "row",
@@ -779,14 +955,15 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: "900",
+    fontSize: 14,
+    fontWeight: "800",
     paddingRight: 10,
-    lineHeight: 21,
+    lineHeight: 18,
+    letterSpacing: -0.1,
   },
   titleAndroid: {
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 13.5,
+    lineHeight: 17,
     paddingRight: 8,
   },
   favWrap: {
@@ -826,10 +1003,40 @@ const styles = StyleSheet.create({
   },
   countText: { fontSize: 12, fontWeight: "900" },
 
-  price: { marginTop: 8, fontSize: 18, fontWeight: "900", lineHeight: 22 },
+  detailsBlock: {
+    marginTop: 8,
+    minHeight: 34,
+  },
+  detailsLineTop: {
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  detailsLineBottom: {
+    marginTop: 2,
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  detailsLineTopAndroid: {
+    fontSize: 12,
+    lineHeight: 15,
+  },
+  detailsLineBottomAndroid: {
+    fontSize: 12,
+    lineHeight: 15,
+  },
+
+  price: {
+    marginTop: 8,
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 20,
+    letterSpacing: -0.1,
+  },
   priceAndroid: {
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 15.5,
+    lineHeight: 19,
     marginTop: 7,
   },
   inclRow: {
@@ -839,11 +1046,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   inclText: {
-    fontSize: 14,
+    fontSize: 12.5,
     fontWeight: "600",
   },
   inclTextAndroid: {
-    fontSize: 13,
+    fontSize: 12,
   },
   inclIcons: {
     flexDirection: "row",

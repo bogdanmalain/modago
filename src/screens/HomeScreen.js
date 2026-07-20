@@ -1,8 +1,9 @@
 // src/screens/HomeScreen.js
 // COMPONENTĂ: HomeScreen
 // MODIFICARE:
-// - categoria afișată pe carduri este acum doar categoria principală (ex: "Electronice")
-// - păstrăm categoria completă în date pentru filtrare/căutare, dar UI-ul cardului primește doar label-ul mare
+// - am aliniat chip-urile Home la structura fashion-only actuală
+// - am scos filtrele vechi "Designer" și "Casă"
+// - am păstrat doar: Toate, Femei, Bărbați, Copii
 // - restul logicii existente rămâne neschimbată (favorite, vacation mode, refresh, create/update/delete local)
 
 import React, {
@@ -41,6 +42,7 @@ import ItemCardLightWarm from "../components/ItemCardLightWarm";
 import ItemCardDarkProduct from "../components/ItemCardDarkProduct";
 
 import { ThemeContext } from "../theme/ThemeProvider";
+import { Ionicons } from "@expo/vector-icons";
 
 function pickById(map, id) {
   if (!map) return undefined;
@@ -116,10 +118,7 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
     [setQuery],
   );
 
-  const CATS = useMemo(
-    () => ["Toate", "Femei", "Bărbați", "Designer", "Copii", "Casă"],
-    [],
-  );
+  const CATS = useMemo(() => ["Toate", "Femei", "Bărbați", "Copii"], []);
   const [activeCat, setActiveCat] = useState("Toate");
 
   const GAP = isDark ? 16 : 12;
@@ -624,14 +623,12 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
             },
           ]}
         >
-          <Text
-            style={[
-              styles.searchIcon,
-              { color: isDark ? "rgba(255,255,255,0.85)" : tokens.muted },
-            ]}
-          >
-            ⌕
-          </Text>
+          <Ionicons
+            name="search-outline"
+            size={20}
+            color={isDark ? "rgba(255,255,255,0.85)" : tokens.muted}
+            style={{ marginRight: 8 }}
+          />
 
           <TextInput
             value={localQuery}
@@ -669,6 +666,9 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
           <FlatList
             data={CATS}
             horizontal
+            initialNumToRender={10} // ← adaugă
+            maxToRenderPerBatch={10} // ← adaugă
+            windowSize={3} // ← adaugă (mai mic pentru liste orizontale)
             showsHorizontalScrollIndicator={false}
             keyExtractor={(x) => x}
             contentContainerStyle={styles.chipsContent}
@@ -720,6 +720,10 @@ export default function HomeScreen({ navigation, route, query, setQuery }) {
         </View>
       ) : (
         <FlatList
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+          removeClippedSubviews={true}
           ref={listRef}
           data={filteredItems}
           renderItem={renderItem}
@@ -760,7 +764,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderWidth: 1,
   },
-  searchIcon: { fontSize: 20, marginRight: 8 },
+  searchIcon: { fontSize: 24, marginRight: 8 },
   searchInput: { flex: 1, fontSize: 15, fontWeight: "700" },
 
   cameraBtn: {
