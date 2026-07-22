@@ -12,11 +12,15 @@ const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const ORDER_EVENT_COPY: Record<string, { title: string; body: string }> = {
   new_order: { title: "Comandă nouă!", body: "Ai o comandă nouă de expediat." },
+  order_shipped: { title: "Coletul a fost expediat", body: "Vânzătorul a adăugat AWB-ul, urmărește livrarea." },
   order_completed: { title: "Comandă finalizată", body: "Comanda ta a fost finalizată cu succes." },
+  funds_released: { title: "Fonduri eliberate", body: "Banii au fost eliberați către tine." },
   refund_processed: { title: "Rambursare procesată", body: "Ai primit banii înapoi." },
   refund_issued: { title: "Rambursare emisă", body: "S-a emis o rambursare pentru comanda ta." },
   dispute_resolved: { title: "Dispută rezolvată", body: "Disputa comenzii tale a fost rezolvată." },
 };
+
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 serve(async (req) => {
   try {
@@ -24,7 +28,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     if (payload?.order_id && payload?.event && payload?.recipient) {
-      return await handleOrderEvent(supabase, payload);
+      return await handleOrderEvent(supabase, payload, req.headers.get("Authorization"));
     }
 
     // Webhook payload: { type, table, record, ... }
@@ -104,6 +108,7 @@ serve(async (req) => {
 async function handleOrderEvent(
   supabase: ReturnType<typeof createClient>,
   payload: { order_id: string; event: string; recipient: "buyer" | "seller" },
+  authHeader: string | null,
 ) {
   const { order_id, event, recipient } = payload;
 
@@ -117,7 +122,35 @@ async function handleOrderEvent(
     return new Response("Order not found", { status: 404 });
   }
 
+  // Autorizare: apeluri de la alte edge functions folosesc service role key.
+  // Apeluri directe din client (ex. seller adaugă AWB) trebuie să vină
+  // de la unul dintre participanții comenzii.
+  const isServiceRole = !!authHeader && authHeader.includes(SERVICE_ROLE_KEY);
+  if (!isServiceRole) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser((authHeader ?? "").replace("Bearer ", ""));
+    if (!user || (user.id !== order.buyer_id && user.id !== order.seller_id)) {
+      return new Response("Not authorized for this order", { status: 403 });
+    }
+  }
+
   const recipientId = recipient === "buyer" ? order.buyer_id : order.seller_id;
+
+  const copy = ORDER_EVENT_COPY[event] ?? {
+    title: "ModaGo",
+    body: "Ai o actualizare la o comandă.",
+  };
+
+  // Înregistrăm mereu notificarea in-app (banner la login/intrare în app),
+  // indiferent dacă push token-ul există sau notificările sunt permise.
+  await supabase.from("notifications").insert({
+    user_id: recipientId,
+    type: event,
+    order_id,
+    title: copy.title,
+    body: copy.body,
+  });
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -127,13 +160,11 @@ async function handleOrderEvent(
 
   const pushToken = profile?.push_token;
   if (!pushToken) {
-    return new Response("No push token", { status: 200 });
+    return new Response(JSON.stringify({ success: true, push: false }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }
-
-  const copy = ORDER_EVENT_COPY[event] ?? {
-    title: "ModaGo",
-    body: "Ai o actualizare la o comandă.",
-  };
 
   const result = await sendExpoPush({
     to: pushToken,
@@ -144,7 +175,7 @@ async function handleOrderEvent(
   });
 
   console.log("Push result:", JSON.stringify(result));
-  return new Response(JSON.stringify({ success: true }), {
+  return new Response(JSON.stringify({ success: true, push: true }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });

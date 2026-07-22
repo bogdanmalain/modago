@@ -165,7 +165,7 @@ async function handlePaymentSucceeded(pi: Stripe.PaymentIntent): Promise<void> {
 
 // ── payment_intent.payment_failed ────────────────────────────────
 async function handlePaymentFailed(pi: Stripe.PaymentIntent): Promise<void> {
-  const { order_id } = pi.metadata;
+  const { order_id, item_id } = pi.metadata;
   if (!order_id) return;
 
   const { data: order } = await supabaseAdmin
@@ -180,6 +180,15 @@ async function handlePaymentFailed(pi: Stripe.PaymentIntent): Promise<void> {
     .from("orders")
     .update({ status: "cancelled" })
     .eq("id", order_id);
+
+  // Eliberăm anunțul rezervat — redevine vizibil în listări
+  if (item_id) {
+    await supabaseAdmin
+      .from("items")
+      .update({ status: "active" })
+      .eq("id", item_id)
+      .eq("status", "reserved");
+  }
 
   console.log(`❌ Order ${order_id} → cancelled (PI eșuat: ${pi.id})`);
 }

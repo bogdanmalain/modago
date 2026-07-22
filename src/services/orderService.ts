@@ -340,6 +340,19 @@ export async function addTracking(payload: AddTrackingPayload): Promise<void> {
     .eq("status", "paid"); // guard suplimentar
 
   if (error) throw error;
+
+  // Notificăm cumpărătorul (push + banner in-app) — non-blocking
+  try {
+    await supabase.functions.invoke("push-notification", {
+      body: {
+        order_id: payload.order_id,
+        event: "order_shipped",
+        recipient: "buyer",
+      },
+    });
+  } catch (e) {
+    console.warn("Notificare order_shipped eșuată (non-critic):", e);
+  }
 }
 
 // ── BUYER: CONFIRMARE LIVRARE ────────────────────────────────────
@@ -517,6 +530,59 @@ export async function getOrderTransactions(
 
   if (error) throw error;
   return data ?? [];
+}
+
+// ── NOTIFICĂRI IN-APP (banner la login / intrare în aplicație) ───
+
+export type AppNotification = {
+  id: string;
+  user_id: string;
+  type: string;
+  order_id: string | null;
+  title: string;
+  body: string;
+  read_at: string | null;
+  created_at: string;
+};
+
+export async function getUnreadNotifications(): Promise<AppNotification[]> {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .is("read_at", null)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) throw error;
+}
+
+export function subscribeToNotifications(
+  userId: string,
+  onInsert: (notification: AppNotification) => void,
+) {
+  return supabase
+    .channel(`notifications-${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "notifications",
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload: { new: Record<string, unknown> }) =>
+        onInsert(payload.new as unknown as AppNotification),
+    )
+    .subscribe();
 }
 
 // ── REALTIME SUBSCRIPTIONS ───────────────────────────────────────

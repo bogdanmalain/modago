@@ -161,25 +161,49 @@ Deno.serve(async (req) => {
       return errorResponse("Eroare la crearea comenzii", 500);
     }
 
+    // 7b. Rezervăm anunțul imediat — dispare din listări cât timp
+    // comanda e în curs de plată (nu așteptăm confirmarea Stripe).
+    await supabaseAdmin
+      .from("items")
+      .update({ status: "reserved" })
+      .eq("id", item_id)
+      .eq("status", "active");
+
     // 8. Creează Stripe PaymentIntent
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount_ron_cents,
-      currency: STRIPE_CHARGE_CURRENCY,
-      metadata: {
-        order_id: order.id,
-        item_id: item_id,
-        buyer_id: user.id,
-        seller_id: item.user_id,
-        price_mdl: price_mdl.toString(),
-        fee_mdl: fee_mdl.toString(),
-        total_mdl: total_mdl.toString(),
-        // Identificator pentru webhook
-        platform: "modago",
-      },
-      description: `ModaGo – ${item.title}`,
-      // Permite confirmare automată din app
-      automatic_payment_methods: { enabled: true },
-    });
+    let paymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: amount_ron_cents,
+        currency: STRIPE_CHARGE_CURRENCY,
+        metadata: {
+          order_id: order.id,
+          item_id: item_id,
+          buyer_id: user.id,
+          seller_id: item.user_id,
+          price_mdl: price_mdl.toString(),
+          fee_mdl: fee_mdl.toString(),
+          total_mdl: total_mdl.toString(),
+          // Identificator pentru webhook
+          platform: "modago",
+        },
+        description: `ModaGo – ${item.title}`,
+        // Permite confirmare automată din app
+        automatic_payment_methods: { enabled: true },
+      });
+    } catch (piErr) {
+      console.error("Stripe PaymentIntent error:", piErr);
+      // Anulăm comanda și eliberăm anunțul — nu lăsăm o rezervare orfană
+      await supabaseAdmin
+        .from("orders")
+        .update({ status: "cancelled" })
+        .eq("id", order.id);
+      await supabaseAdmin
+        .from("items")
+        .update({ status: "active" })
+        .eq("id", item_id)
+        .eq("status", "reserved");
+      return errorResponse("Eroare la inițierea plății", 500);
+    }
 
     // 9. Actualizează order-ul cu PaymentIntent ID
     await supabaseAdmin

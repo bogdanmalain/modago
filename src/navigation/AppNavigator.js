@@ -60,6 +60,8 @@ import VacationModeScreen from "../screens/VacationModeScreen";
 // Theme + Unread + Push
 import { ThemeProvider, ThemeContext } from "../theme/ThemeProvider";
 import { UnreadProvider } from "../context/UnreadContext";
+import { OrderNotificationsProvider } from "../context/OrderNotificationsContext";
+import NotificationBanner from "../components/NotificationBanner";
 import { setupPushNotifications } from "../services/notificationService";
 
 const Stack = createNativeStackNavigator();
@@ -225,13 +227,16 @@ export default function AppNavigator() {
   return (
     <ThemeProvider>
       <UnreadProvider>
-        <NavigationContainer
-          ref={navRef}
-          onReady={handleNavStateChange}
-          onStateChange={handleNavStateChange}
-        >
-          {AppTree}
-        </NavigationContainer>
+        <OrderNotificationsProvider>
+          <NavigationContainer
+            ref={navRef}
+            onReady={handleNavStateChange}
+            onStateChange={handleNavStateChange}
+          >
+            {AppTree}
+          </NavigationContainer>
+          <NotificationBanner navRef={navRef} />
+        </OrderNotificationsProvider>
       </UnreadProvider>
     </ThemeProvider>
   );
