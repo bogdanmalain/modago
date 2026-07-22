@@ -247,10 +247,7 @@ async function processRelease(order: any): Promise<ProcessResult> {
   });
 
   // Notificări
-  await Promise.allSettled([
-    notifyUser(order_id, "seller", "funds_released"),
-    notifyUser(order_id, "buyer", "order_completed"),
-  ]);
+  await Promise.allSettled([notifyUser(order_id, "buyer", "order_completed")]);
 
   return {
     message: `Fonduri eliberate: ${net_mdl} MDL`,

@@ -12,7 +12,6 @@ const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const ORDER_EVENT_COPY: Record<string, { title: string; body: string }> = {
   new_order: { title: "Comandă nouă!", body: "Ai o comandă nouă de expediat." },
-  funds_released: { title: "Fonduri eliberate", body: "Banii au fost eliberați către tine." },
   order_completed: { title: "Comandă finalizată", body: "Comanda ta a fost finalizată cu succes." },
   refund_processed: { title: "Rambursare procesată", body: "Ai primit banii înapoi." },
   refund_issued: { title: "Rambursare emisă", body: "S-a emis o rambursare pentru comanda ta." },
