@@ -394,38 +394,36 @@ export default function ItemCardLightWarm({
               </View>
             </View>
 
-            {metaRows.hasAny ? (
-              <View style={styles.detailsBlock}>
-                {metaRows.brand ? (
-                  <Text
-                    style={[
-                      styles.detailsLineTop,
-                      { color: muted },
-                      Platform.OS === "android" && styles.detailsLineTopAndroid,
-                    ]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {metaRows.brand}
-                  </Text>
-                ) : null}
+            <View style={styles.detailsBlock}>
+              {metaRows.brand ? (
+                <Text
+                  style={[
+                    styles.detailsLineTop,
+                    { color: muted },
+                    Platform.OS === "android" && styles.detailsLineTopAndroid,
+                  ]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {metaRows.brand}
+                </Text>
+              ) : null}
 
-                {metaRows.secondRow ? (
-                  <Text
-                    style={[
-                      styles.detailsLineBottom,
-                      { color: muted },
-                      Platform.OS === "android" &&
-                        styles.detailsLineBottomAndroid,
-                    ]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {metaRows.secondRow}
-                  </Text>
-                ) : null}
-              </View>
-            ) : null}
+              {metaRows.secondRow ? (
+                <Text
+                  style={[
+                    styles.detailsLineBottom,
+                    { color: muted },
+                    Platform.OS === "android" &&
+                      styles.detailsLineBottomAndroid,
+                  ]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {metaRows.secondRow}
+                </Text>
+              ) : null}
+            </View>
 
             <Pressable onPress={openPriceSheet} hitSlop={6}>
               <Text

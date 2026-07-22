@@ -27,6 +27,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -242,13 +243,27 @@ export default function ProfileScreen({ navigation }) {
     navigation.navigate(ROUTES.Settings);
   }, [navigation]);
 
+  const [loggingOut, setLoggingOut] = useState(false);
+
   const onLogout = useCallback(async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+
     try {
-      await supabase.auth.signOut();
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 10000),
+      );
+      await Promise.race([supabase.auth.signOut(), timeout]);
     } catch (e) {
       console.log("❌ logout error:", e);
+      Alert.alert(
+        "Eroare",
+        "Nu am putut te deconecta — verifică conexiunea la internet și încearcă din nou.",
+      );
+    } finally {
+      setLoggingOut(false);
     }
-  }, []);
+  }, [loggingOut]);
 
   const formatCount = (val) => (loadingCounts ? "—" : String(val ?? "—"));
   const formatBalance = (val) =>
@@ -401,8 +416,8 @@ export default function ProfileScreen({ navigation }) {
         <View style={S.logoutCard}>
           <MenuRow
             icon="power-outline"
-            label="Deconectează-te"
-            onPress={onLogout}
+            label={loggingOut ? "Se deconectează..." : "Deconectează-te"}
+            onPress={loggingOut ? undefined : onLogout}
             danger
             S={S}
             iconColor={S.__colors.danger}

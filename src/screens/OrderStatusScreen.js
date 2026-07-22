@@ -25,6 +25,7 @@ import {
   TextInput,
   Linking,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useContext } from "react";
 import { ThemeContext } from "../theme/ThemeProvider";
@@ -58,6 +59,7 @@ export default function OrderStatusScreen({ route, navigation }) {
   const TEAL = tokens?.primary ?? "#2CA6A4";
   const TEAL_LIGHT = isDark ? "rgba(44,166,164,0.15)" : "rgba(44,166,164,0.10)";
   const s = styles(isDark, TEAL, TEAL_LIGHT);
+  const insets = useSafeAreaInsets();
 
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -200,7 +202,7 @@ export default function OrderStatusScreen({ route, navigation }) {
     <SafeAreaView style={s.safe}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={goBackSafe} style={s.backBtn}>
           <Ionicons name="arrow-back" size={24} color={isDark ? "#fff" : "#000"} />
         </TouchableOpacity>

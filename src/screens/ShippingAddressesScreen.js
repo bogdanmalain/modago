@@ -23,6 +23,7 @@ import {
   Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Swipeable } from "react-native-gesture-handler";
 import { useContext } from "react";
 import { ThemeContext } from "../theme/ThemeProvider";
@@ -44,6 +45,7 @@ export default function ShippingAddressesScreen({ route, navigation }) {
   const TEAL_LIGHT = isDark ? "rgba(44,166,164,0.15)" : "rgba(44,166,164,0.10)";
   const TEAL_DARK = "#1A7A78";
   const s = styles(isDark, TEAL, TEAL_LIGHT, TEAL_DARK);
+  const insets = useSafeAreaInsets();
 
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -182,7 +184,7 @@ export default function ShippingAddressesScreen({ route, navigation }) {
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
           <Ionicons
             name="arrow-back"

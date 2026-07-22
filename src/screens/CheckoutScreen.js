@@ -24,6 +24,7 @@ import {
   StatusBar,
   Platform,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCheckoutStripe } from "../utils/stripeCompat";
 import { Ionicons } from "@expo/vector-icons";
 import { ThemeContext } from "../theme/ThemeProvider";
@@ -37,6 +38,7 @@ export default function CheckoutScreen({ route, navigation }) {
   const TEAL = tokens?.primary ?? "#2CA6A4";
   const TEAL_LIGHT = isDark ? "rgba(44,166,164,0.15)" : "rgba(44,166,164,0.10)";
   const TEAL_DARK = "#1A7A78";
+  const insets = useSafeAreaInsets();
   const s = styles(isDark, TEAL, TEAL_LIGHT, TEAL_DARK);
 
   const { initPaymentSheet, presentPaymentSheet } = useCheckoutStripe();
@@ -154,7 +156,7 @@ export default function CheckoutScreen({ route, navigation }) {
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
           <Ionicons
             name="arrow-back"
