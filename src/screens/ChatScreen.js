@@ -22,7 +22,6 @@ import {
   TouchableOpacity,
   Image,
   KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
   Alert,
   Animated,
@@ -440,7 +439,7 @@ export default function ChatScreen({ navigation, route }) {
   return (
     <KeyboardAvoidingView
       style={S.screen}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="padding"
       keyboardVerticalOffset={0}
     >
       {/* Header */}

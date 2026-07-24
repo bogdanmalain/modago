@@ -146,7 +146,7 @@ export default function WelcomeScreen({ navigation }) {
           <TouchableOpacity
             activeOpacity={0.85}
             style={[styles.headerSide, styles.headerSideRight]}
-            onPress={() => go("Home")}
+            onPress={() => go("Login")}
           >
             <Text style={styles.headerText}>Omitere</Text>
           </TouchableOpacity>

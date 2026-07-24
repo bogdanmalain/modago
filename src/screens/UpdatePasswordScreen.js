@@ -81,7 +81,7 @@ export default function UpdatePasswordScreen({ navigation }) {
   return (
     <KeyboardAvoidingView
       style={styles.page}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="padding"
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
       <ScrollView
