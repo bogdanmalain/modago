@@ -666,6 +666,17 @@ export default function MyItemsScreen({ navigation, route }) {
   const onDeleteItem = useCallback(() => {
     if (!selectedItem) return;
 
+    if (selectedItem.status && selectedItem.status !== "active") {
+      closeMenu();
+      Alert.alert(
+        "Nu poți șterge acest anunț",
+        selectedItem.status === "reserved"
+          ? "Un cumpărător e la mijlocul unei plăți pentru acest articol — nu poate fi șters până se finalizează sau se anulează comanda."
+          : "Acest articol a fost deja vândut și nu mai poate fi șters.",
+      );
+      return;
+    }
+
     Alert.alert(
       "Ștergere anunț",
       "Sigur vrei să ștergi acest anunț?",
@@ -679,7 +690,7 @@ export default function MyItemsScreen({ navigation, route }) {
       ],
       { cancelable: true },
     );
-  }, [deleteItemNow, selectedItem]);
+  }, [deleteItemNow, selectedItem, closeMenu]);
 
   const renderItem = useCallback(
     ({ item }) => {

@@ -30,6 +30,7 @@ export const ROUTES = {
 
   Settings: "Settings",
   ThemeSettings: "ThemeSettings",
+  Security: "Security",
 
   Balance: "Balance",
   Orders: "Orders",
@@ -38,4 +39,7 @@ export const ROUTES = {
   Checkout: "Checkout",
   ShippingAddresses: "ShippingAddresses",
   OrderStatus: "OrderStatus",
+  Dispute: "Dispute",
+  AdminDisputes: "AdminDisputes",
+  AdminDisputeDetail: "AdminDisputeDetail",
 };

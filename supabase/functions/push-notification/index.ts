@@ -14,10 +14,12 @@ const ORDER_EVENT_COPY: Record<string, { title: string; body: string }> = {
   new_order: { title: "Comandă nouă!", body: "Ai o comandă nouă de expediat." },
   order_shipped: { title: "Coletul a fost expediat", body: "Vânzătorul a adăugat AWB-ul, urmărește livrarea." },
   order_completed: { title: "Comandă finalizată", body: "Comanda ta a fost finalizată cu succes." },
-  funds_released: { title: "Fonduri eliberate", body: "Banii au fost eliberați către tine." },
+  funds_released: { title: "Fonduri disponibile", body: "Suma e disponibilă în Sold — poți cere retragerea." },
   refund_processed: { title: "Rambursare procesată", body: "Ai primit banii înapoi." },
   refund_issued: { title: "Rambursare emisă", body: "S-a emis o rambursare pentru comanda ta." },
   dispute_resolved: { title: "Dispută rezolvată", body: "Disputa comenzii tale a fost rezolvată." },
+  dispute_escalated: { title: "Dispută în analiză", body: "Vânzătorul a respins oferta ta — ModaGo va decide." },
+  return_required: { title: "Trebuie să returnezi produsul", body: "Trimite produsul înapoi cu AWB ca să primești rambursarea completă." },
 };
 
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

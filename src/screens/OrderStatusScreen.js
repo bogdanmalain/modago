@@ -35,6 +35,7 @@ import {
   subscribeToOrder,
   confirmDelivery,
   addTracking,
+  getDisputeForOrder,
 } from "../services/orderService";
 import { ORDER_STATUS_LABELS } from "../types/escrow";
 import { ROUTES } from "../navigation/routes";
@@ -65,6 +66,7 @@ export default function OrderStatusScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [userId, setUserId] = useState(null);
+  const [dispute, setDispute] = useState(null);
 
   const [courier, setCourier] = useState(COURIERS[0]);
   const [trackingInput, setTrackingInput] = useState("");
@@ -87,8 +89,12 @@ export default function OrderStatusScreen({ route, navigation }) {
   const loadOrder = useCallback(async () => {
     if (!orderId) return;
     try {
-      const data = await getOrderById(orderId);
+      const [data, disputeData] = await Promise.all([
+        getOrderById(orderId),
+        getDisputeForOrder(orderId).catch(() => null),
+      ]);
       setOrder(data);
+      setDispute(disputeData);
     } catch (e) {
       Alert.alert("Eroare", "Nu am putut încărca comanda.");
     } finally {
@@ -197,6 +203,7 @@ export default function OrderStatusScreen({ route, navigation }) {
   const isSeller = !!userId && order.seller_id === userId;
   const canConfirmDelivery = isBuyer && order.status === "shipped";
   const canAddTracking = isSeller && order.status === "paid";
+  const canOpenDispute = isBuyer && order.status === "shipped" && !dispute;
 
   return (
     <SafeAreaView style={s.safe}>
@@ -333,6 +340,25 @@ export default function OrderStatusScreen({ route, navigation }) {
             <Text style={s.escrowBold}>doar după ce confirmi primirea</Text>.
           </Text>
         </View>
+
+        {/* ── Dispută ── */}
+        {dispute ? (
+          <TouchableOpacity
+            style={s.disputeCard}
+            onPress={() => navigation.navigate(ROUTES.Dispute, { orderId, itemTitle })}
+          >
+            <Ionicons name="alert-circle" size={20} color="#B00020" />
+            <Text style={s.disputeCardText}>Vezi disputa deschisă pentru comanda asta</Text>
+            <Ionicons name="chevron-forward" size={18} color="#B00020" />
+          </TouchableOpacity>
+        ) : canOpenDispute ? (
+          <TouchableOpacity
+            style={s.disputeLink}
+            onPress={() => navigation.navigate(ROUTES.Dispute, { orderId, itemTitle })}
+          >
+            <Text style={s.disputeLinkText}>Am o problemă cu comanda</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -495,6 +521,24 @@ const styles = (isDark, TEAL, TEAL_LIGHT) =>
     escrowTitle: { fontSize: 14, fontWeight: "700", color: isDark ? "#9FE1CB" : TEAL },
     escrowText: { fontSize: 13, color: isDark ? "#9FE1CB" : TEAL, lineHeight: 19 },
     escrowBold: { fontWeight: "700" },
+
+    disputeCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      backgroundColor: isDark ? "#3A1414" : "#FBE9E9",
+      borderRadius: 14,
+      padding: 16,
+    },
+    disputeCardText: { flex: 1, fontSize: 14, fontWeight: "600", color: "#B00020" },
+
+    disputeLink: { alignItems: "center", paddingVertical: 10 },
+    disputeLinkText: {
+      fontSize: 14,
+      fontWeight: "600",
+      color: isDark ? "#8E8E93" : "#6E6E73",
+      textDecorationLine: "underline",
+    },
 
     footer: {
       position: "absolute",

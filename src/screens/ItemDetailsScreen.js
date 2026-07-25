@@ -566,6 +566,16 @@ export default function ItemDetailsScreen({ navigation, route }) {
   const onDelete = useCallback(async () => {
     if (!item?.id) return;
 
+    if (item.status && item.status !== "active") {
+      Alert.alert(
+        "Nu poți șterge acest anunț",
+        item.status === "reserved"
+          ? "Un cumpărător e la mijlocul unei plăți pentru acest articol — nu poate fi șters până se finalizează sau se anulează comanda."
+          : "Acest articol a fost deja vândut și nu mai poate fi șters.",
+      );
+      return;
+    }
+
     Alert.alert("Șterge anunțul?", "Sigur vrei să-l ștergi?", [
       { text: "Anulează", style: "cancel" },
       {

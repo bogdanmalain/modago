@@ -8,13 +8,16 @@
 //   2. Supabase Database Webhook sau pg_cron (auto-release): { trigger: 'auto_release' }
 //
 // ── Arhitectura financiară ────────────────────────────────────────
-// În faza de test cu Stripe:
-//   - Banii stau în contul Stripe al ModaGo (nu facem Stripe Connect)
-//   - "Eliberarea" = înregistrare în ledger + status completed
-//   - Plata fizică spre vânzător = manuală sau prin MAIB la integrare
+// Banii stau în contul Stripe al ModaGo (nu facem Stripe Connect).
+// "Eliberarea" = ledger + status completed + suma devine disponibilă
+// în Sold (BalanceScreen). Plata fizică spre vânzător e manuală azi:
+// vânzătorul cere retragere (withdrawal_requests), tu confirmi transferul
+// bancar și marchezi cererea 'paid'.
 //
-// La integrarea MAIB:
+// La integrarea MAIB (sau alt disbursement API real):
 //   - Înlocuim blocul `performStripeRelease` cu apelul MAIB disbursement API
+//   - Funcția trebuie să arunce eroare la eșec (nu să întoarcă null) —
+//     processRelease se bazează pe asta ca să nu marcheze completed pe eșec
 //   - Restul logicii rămâne identic
 // ================================================================
 
@@ -40,10 +43,15 @@ type ReleaseTrigger =
   | "auto_release"
   | "admin_resolve_release";
 type RefundTrigger = "admin_resolve_refund" | "admin_resolve_split";
+type AgreementTrigger = "seller_accept_offer";
+type ReturnTrigger =
+  | "admin_require_return"
+  | "seller_confirm_return"
+  | "admin_confirm_return";
 
 interface ReleasePayload {
   order_id: string;
-  trigger: ReleaseTrigger | RefundTrigger;
+  trigger: ReleaseTrigger | RefundTrigger | AgreementTrigger | ReturnTrigger;
   split_refund_pct?: number; // pentru resolved_split (0-100)
 }
 
@@ -62,6 +70,8 @@ Deno.serve(async (req) => {
 
     let callerId: string | null = null;
 
+    let isAdmin = false;
+
     if (!isServiceRole) {
       const {
         data: { user },
@@ -69,7 +79,16 @@ Deno.serve(async (req) => {
       } = await supabaseAdmin.auth.getUser(authHeader.replace("Bearer ", ""));
       if (error || !user) return errorResponse("Autentificare necesară", 401);
       callerId = user.id;
+
+      const { data: profile } = await supabaseAdmin
+        .from("profiles")
+        .select("is_admin")
+        .eq("id", callerId)
+        .maybeSingle();
+      isAdmin = !!profile?.is_admin;
     }
+
+    const isPrivileged = isServiceRole || isAdmin;
 
     // 2. Parse body
     const payload: ReleasePayload = await req.json();
@@ -90,8 +109,39 @@ Deno.serve(async (req) => {
       return errorResponse(`Order ${order_id} negăsit`, 404);
     }
 
+    // 3b. Pentru triggere legate de dispută, preluăm disputa deschisă
+    let dispute: any = null;
+    if (
+      [
+        "admin_resolve_release",
+        "admin_resolve_refund",
+        "admin_resolve_split",
+        "seller_accept_offer",
+        "admin_require_return",
+        "seller_confirm_return",
+        "admin_confirm_return",
+      ].includes(trigger)
+    ) {
+      const { data } = await supabaseAdmin
+        .from("disputes")
+        .select(
+          "id, buyer_offer_pct, offer_status, return_stage, return_tracking_number, return_shipping_cost_mdl",
+        )
+        .eq("order_id", order_id)
+        .in("status", ["open", "under_review"])
+        .maybeSingle();
+      dispute = data;
+    }
+
     // 4. Validează starea și permisiunile
-    const validation = validateRelease(order, trigger, callerId, payload);
+    const validation = validateRelease(
+      order,
+      trigger,
+      callerId,
+      payload,
+      isPrivileged,
+      dispute,
+    );
     if (validation.error) {
       return errorResponse(validation.error, validation.status ?? 400);
     }
@@ -105,11 +155,40 @@ Deno.serve(async (req) => {
       trigger === "admin_resolve_release"
     ) {
       result = await processRelease(order);
+      if (trigger === "admin_resolve_release") {
+        await resolveDisputeIfAny(order.id, "resolved_release", callerId);
+      }
     } else if (trigger === "admin_resolve_refund") {
       result = await processRefund(order, 100);
+      await resolveDisputeIfAny(order.id, "resolved_refund", callerId);
     } else if (trigger === "admin_resolve_split") {
       const pct = payload.split_refund_pct ?? 50;
       result = await processRefundAndRelease(order, pct);
+      await resolveDisputeIfAny(order.id, "resolved_split", callerId, pct);
+    } else if (trigger === "seller_accept_offer") {
+      const pct = Number(dispute.buyer_offer_pct);
+      if (pct >= 100) {
+        result = await processRefund(order, 100);
+        await resolveDisputeIfAny(order.id, "resolved_refund", callerId);
+      } else if (pct <= 0) {
+        result = await processRelease(order);
+        await resolveDisputeIfAny(order.id, "resolved_release", callerId);
+      } else {
+        result = await processRefundAndRelease(order, pct);
+        await resolveDisputeIfAny(order.id, "resolved_split", callerId, pct);
+      }
+    } else if (trigger === "admin_require_return") {
+      await supabaseAdmin
+        .from("disputes")
+        .update({ return_stage: "awaiting_return" })
+        .eq("id", dispute.id);
+      await notifyUser(order.id, "buyer", "return_required");
+      result = { message: "Retur cerut cumpărătorului înainte de rambursare" };
+    } else if (
+      trigger === "seller_confirm_return" ||
+      trigger === "admin_confirm_return"
+    ) {
+      result = await processReturnRefund(order, dispute, callerId);
     } else {
       return errorResponse("Trigger necunoscut", 400);
     }
@@ -136,6 +215,8 @@ function validateRelease(
   trigger: string,
   callerId: string | null,
   payload: ReleasePayload,
+  isPrivileged: boolean,
+  dispute: any,
 ): ValidationResult {
   // Verificare idempotență: dacă deja completed/refunded, nu facem nimic
   if (["completed", "refunded", "cancelled"].includes(order.status)) {
@@ -167,8 +248,11 @@ function validateRelease(
     }
   }
 
-  // auto_release: doar service role, și doar shipped cu auto_release_at expirat
+  // auto_release: doar service role/admin, și doar shipped cu auto_release_at expirat
   if (trigger === "auto_release") {
+    if (!isPrivileged) {
+      return { error: "Trigger rezervat sistemului", status: 403 };
+    }
     if (order.status !== "shipped" && order.status !== "delivered") {
       return {
         error: `Auto-release imposibil din status '${order.status}'`,
@@ -183,7 +267,7 @@ function validateRelease(
     }
   }
 
-  // admin triggers: doar service role (deja validat mai sus)
+  // admin triggers: doar service role sau profile.is_admin
   if (
     [
       "admin_resolve_release",
@@ -191,11 +275,79 @@ function validateRelease(
       "admin_resolve_split",
     ].includes(trigger)
   ) {
+    if (!isPrivileged) {
+      return { error: "Doar un admin poate rezolva o dispută", status: 403 };
+    }
     if (!["disputed", "shipped", "delivered"].includes(order.status)) {
       return {
         error: `Decizie admin imposibilă din status '${order.status}'`,
         status: 409,
       };
+    }
+  }
+
+  // seller_accept_offer: doar vânzătorul, doar cu o ofertă 'pending' a buyer-ului
+  if (trigger === "seller_accept_offer") {
+    if (callerId !== order.seller_id) {
+      return { error: "Doar vânzătorul poate accepta oferta", status: 403 };
+    }
+    if (order.status !== "disputed") {
+      return {
+        error: `Nu există dispută activă (status: '${order.status}')`,
+        status: 409,
+      };
+    }
+    if (!dispute || dispute.offer_status !== "pending" || dispute.buyer_offer_pct === null) {
+      return { error: "Nu există o ofertă în așteptare", status: 409 };
+    }
+  }
+
+  // admin_require_return: doar admin, marchează disputa ca necesitând retur
+  // fizic înainte de rambursare — nu mișcă bani.
+  if (trigger === "admin_require_return") {
+    if (!isPrivileged) {
+      return { error: "Doar un admin poate cere returul", status: 403 };
+    }
+    if (!dispute || dispute.return_stage !== "none") {
+      return { error: "Disputa nu e într-o stare validă pentru asta", status: 409 };
+    }
+  }
+
+  // seller_confirm_return: doar vânzătorul, doar după ce cumpărătorul a
+  // trimis AWB-ul de retur (return_stage 'shipped').
+  if (trigger === "seller_confirm_return") {
+    if (callerId !== order.seller_id) {
+      return { error: "Doar vânzătorul poate confirma primirea returului", status: 403 };
+    }
+    if (order.status !== "disputed") {
+      return {
+        error: `Nu există dispută activă (status: '${order.status}')`,
+        status: 409,
+      };
+    }
+    if (
+      !dispute ||
+      dispute.return_stage !== "shipped" ||
+      !dispute.return_tracking_number ||
+      dispute.return_shipping_cost_mdl === null
+    ) {
+      return { error: "Returul nu a fost încă trimis de cumpărător", status: 409 };
+    }
+  }
+
+  // admin_confirm_return: override — adminul finalizează manual dacă
+  // vânzătorul nu confirmă primirea returului.
+  if (trigger === "admin_confirm_return") {
+    if (!isPrivileged) {
+      return { error: "Doar un admin poate forța finalizarea returului", status: 403 };
+    }
+    if (
+      !dispute ||
+      dispute.return_stage !== "shipped" ||
+      !dispute.return_tracking_number ||
+      dispute.return_shipping_cost_mdl === null
+    ) {
+      return { error: "Returul nu a fost încă trimis de cumpărător", status: 409 };
     }
   }
 
@@ -213,20 +365,15 @@ interface ProcessResult {
 async function processRelease(order: any): Promise<ProcessResult> {
   const { id: order_id, net_mdl, stripe_charge_id } = order;
 
-  // Tentativa de Stripe transfer (în test mode, înregistrăm în ledger)
-  let stripeTransferId: string | null = null;
-
-  try {
-    stripeTransferId = await performStripeRelease(
-      stripe_charge_id,
-      net_mdl,
-      order_id,
-    );
-  } catch (err) {
-    // Non-blocking în test: logăm dar continuăm
-    // În producție cu MAIB: throw pentru retry
-    console.warn("Stripe transfer eșuat (test mode – continuăm):", err);
-  }
+  // Notă: nu prindem eroarea aici — dacă performStripeRelease aruncă (va fi
+  // cazul odată cu integrarea MAIB, când un disbursement poate eșua real),
+  // vrem ca order-ul să NU fie marcat 'completed' și să nu se scrie în
+  // ledger, ca să poată fi reîncercat. Azi (manual/no-op) nu poate arunca.
+  const stripeTransferId = await performStripeRelease(
+    stripe_charge_id,
+    net_mdl,
+    order_id,
+  );
 
   // Actualizăm order-ul → completed
   await supabaseAdmin
@@ -384,9 +531,58 @@ async function processRefundAndRelease(
   };
 }
 
-// ── STRIPE RELEASE ────────────────────────────────────────────────
-// În test mode: simulăm transferul (Stripe Connect necesită conturi conectate)
-// În producție cu MAIB: înlocuim această funcție cu API-ul MAIB
+// ── PROCESARE RETUR + RAMBURSARE (produs defect, vânzător vinovat) ──
+// Cumpărătorul deja a trimis produsul înapoi (return_stage 'shipped').
+// Rambursăm 100% din preț prin Stripe (în limita sumei încasate) și
+// scădem costul AWB-ului din soldul vânzătorului — nu suportă
+// cumpărătorul acest cost dacă vânzătorul a fost cel vinovat.
+// NOTĂ: costul AWB nu poate fi rambursat prin Stripe pe aceeași
+// charge (deja rambursată 100%) — rămâne un transfer manual către
+// cumpărător, pe care adminul îl face separat (vezi mesajul de rezultat).
+async function processReturnRefund(
+  order: any,
+  dispute: any,
+  callerId: string | null,
+): Promise<ProcessResult> {
+  const result = await processRefund(order, 100);
+
+  const returnCost = Number(dispute.return_shipping_cost_mdl);
+  if (returnCost > 0) {
+    await supabaseAdmin.from("balance_adjustments").insert({
+      user_id: order.seller_id,
+      order_id: order.id,
+      amount_mdl: -returnCost,
+      reason: `Cost AWB retur (produs neconform) - comandă ${order.id}`,
+    });
+  }
+
+  await supabaseAdmin
+    .from("disputes")
+    .update({ return_stage: "received", return_received_at: new Date().toISOString() })
+    .eq("id", dispute.id);
+
+  await resolveDisputeIfAny(order.id, "resolved_refund", callerId);
+
+  return {
+    ...result,
+    message: `${result.message} + retur confirmat` +
+      (returnCost > 0
+        ? ` (cost AWB ${returnCost} MDL dedus din soldul vânzătorului — trimite-l manual cumpărătorului)`
+        : ""),
+  };
+}
+
+// ── ELIBERARE FONDURI ─────────────────────────────────────────────
+// Astăzi retragerile sunt manuale: "eliberarea" doar marchează suma ca
+// disponibilă în Sold (BalanceScreen); vânzătorul cere apoi retragerea
+// (withdrawal_requests) și tu confirmi manual transferul bancar.
+// Niciun transfer real nu are loc aici — de-asta returnează mereu un id
+// simulat și nu poate arunca eroare.
+//
+// TODO la integrarea MAIB (sau alt disbursement API real): înlocuiește
+// corpul funcției cu apelul real și ARUNCĂ eroarea la eșec (nu o înghiți) —
+// processRelease se bazează pe asta ca să NU marcheze order-ul 'completed'
+// dacă transferul real a eșuat.
 async function performStripeRelease(
   chargeId: string | null,
   netMdl: number,
@@ -394,21 +590,42 @@ async function performStripeRelease(
 ): Promise<string | null> {
   if (!chargeId) return null;
 
-  // TODO: Când adaugi Stripe Connect sau MAIB, înlocuiește logica de mai jos.
-  // Cu Stripe Connect ar fi:
-  //   const transfer = await stripe.transfers.create({
-  //     amount:      mdlToRonCents(netMdl), // RON, în bani
-  //     currency:    'ron',
-  //     destination: sellerStripeAccountId,
-  //     metadata:    { order_id: orderId },
-  //   });
-  //   return transfer.id;
-
-  // Test mode: înregistrăm doar în metadata ca "transfer simulat"
   console.log(
-    `[TEST MODE] Simulare transfer ${netMdl} MDL pentru order ${orderId}`,
+    `[MANUAL] Fonduri marcate disponibile: ${netMdl} MDL pentru order ${orderId}`,
   );
-  return `sim_transfer_${Date.now()}`;
+  return `manual_${Date.now()}`;
+}
+
+// ── REZOLVARE DISPUTĂ (dacă order-ul are una deschisă) ────────────
+async function resolveDisputeIfAny(
+  orderId: string,
+  resolution: "resolved_release" | "resolved_refund" | "resolved_split",
+  callerId: string | null,
+  splitPct?: number,
+): Promise<void> {
+  const { data: dispute } = await supabaseAdmin
+    .from("disputes")
+    .select("id")
+    .eq("order_id", orderId)
+    .in("status", ["open", "under_review"])
+    .maybeSingle();
+
+  if (!dispute) return;
+
+  await supabaseAdmin
+    .from("disputes")
+    .update({
+      status: resolution,
+      resolved_by: callerId,
+      resolved_at: new Date().toISOString(),
+      ...(splitPct !== undefined ? { split_refund_pct: splitPct } : {}),
+    })
+    .eq("id", dispute.id);
+
+  await supabaseAdmin
+    .from("orders")
+    .update({ has_open_ticket: false })
+    .eq("id", orderId);
 }
 
 // ── NOTIFICĂRI ────────────────────────────────────────────────────

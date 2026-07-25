@@ -31,6 +31,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../supabaseClient";
 import { ThemeContext } from "../theme/ThemeProvider";
 import AppButton from "../components/AppButton";
+import { ROUTES } from "../navigation/routes";
 
 export default function ForgotPasswordScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -94,6 +95,14 @@ export default function ForgotPasswordScreen({ navigation }) {
       appSub?.remove?.();
     };
   }, [shiftY]);
+
+  const goBackSafe = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.replace(ROUTES.Login);
+  }, [navigation]);
 
   const notify = useCallback((title, message) => {
     if (Platform.OS === "web") {
@@ -178,7 +187,7 @@ export default function ForgotPasswordScreen({ navigation }) {
 
           <AppButton
             title="Înapoi la autentificare"
-            onPress={() => navigation.goBack()}
+            onPress={goBackSafe}
             disabled={loading}
             variant="ghost"
             height={40}

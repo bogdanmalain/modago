@@ -34,6 +34,8 @@ import { supabase } from "../supabaseClient";
 import { ROUTES } from "../navigation/routes";
 import { ThemeContext } from "../theme/ThemeProvider";
 import AppButton from "../components/AppButton";
+import SocialAuthButtons from "../components/SocialAuthButtons";
+import { isSocialAuthAvailable } from "../services/socialAuthService";
 
 export default function LoginScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -237,6 +239,18 @@ export default function LoginScreen({ navigation, route }) {
             style={{ marginTop: 12 }}
           />
 
+          {isSocialAuthAvailable() && (
+            <>
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>sau</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <SocialAuthButtons disabled={loading} />
+            </>
+          )}
+
           <AppButton
             title="Nu ai cont? Creează unul"
             onPress={() => navigation.replace(ROUTES.Register)}
@@ -340,6 +354,26 @@ function makeStyles(tokens, insets) {
     eyeText: {
       fontWeight: "900",
       color: tokens.text,
+    },
+
+    divider: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginTop: 18,
+      marginBottom: 4,
+    },
+
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: border,
+    },
+
+    dividerText: {
+      marginHorizontal: 10,
+      color: tokens.subtext ?? tokens.muted,
+      fontWeight: "700",
+      fontSize: 13,
     },
   });
 }

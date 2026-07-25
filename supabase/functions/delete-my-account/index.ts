@@ -15,12 +15,11 @@ const SUPABASE_SERVICE_ROLE_KEY =
 const STORAGE_BUCKET = "items";
 
 const BLOCKING_ORDER_STATUSES = [
+  "pending_payment",
   "paid",
-  "awaiting_shipment",
   "shipped",
-  "delivered_pending_confirmation",
+  "delivered",
   "disputed",
-  "refund_pending",
 ];
 
 const corsHeaders = {

@@ -23,6 +23,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BRAND_OPTIONS_FASHION, getOptionLabel } from "../constants/categoryAttributes";
 
 const ICON = Platform.OS === "android" ? 42 : 44;
 const BADGE_MIN = 22;
@@ -142,6 +143,17 @@ function formatConditionLabel(value) {
     .replace(/^\p{L}/u, (c) => c.toUpperCase());
 }
 
+function formatBrandLabel(value) {
+  const raw = normalizeMetaValue(value);
+  if (!raw) return "";
+
+  const known = getOptionLabel(BRAND_OPTIONS_FASHION, raw.toLowerCase());
+  if (known) return known;
+
+  // Brand introdus liber de utilizator (a ales "Alt brand") — afișăm textul ca atare.
+  return toTitleCase(raw.replace(/_/g, " "));
+}
+
 function pickItemMeta(item, directKeys = [], attributeKeys = []) {
   for (const key of directKeys) {
     const value = normalizeMetaValue(item?.[key]);
@@ -176,7 +188,7 @@ function getMetaRows(item) {
     ["condition", "Condition", "state", "State", "stare", "Stare"],
   );
 
-  const brand = toTitleCase(brandRaw);
+  const brand = formatBrandLabel(brandRaw);
   const size = formatDisplaySize(sizeRaw, item);
   const condition = formatConditionLabel(conditionRaw);
 

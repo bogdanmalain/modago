@@ -135,6 +135,8 @@ export interface EscrowTransaction {
 
 // ── DISPUTE ──────────────────────────────────────────────────────
 
+export type OfferStatus = "none" | "pending" | "accepted" | "rejected";
+
 export interface Dispute {
   id: string;
   order_id: string;
@@ -145,9 +147,18 @@ export interface Dispute {
   resolved_by?: string;
   resolved_at?: string;
   split_refund_pct?: number;
+  buyer_offer_pct?: number | null;
+  offer_status: OfferStatus;
+  return_stage: ReturnStage;
+  return_tracking_number?: string | null;
+  return_shipping_cost_mdl?: number | null;
+  return_shipped_at?: string | null;
+  return_received_at?: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export type ReturnStage = "none" | "awaiting_return" | "shipped" | "received";
 
 export interface DisputeEvidence {
   id: string;
@@ -242,6 +253,16 @@ export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
   disputed: "red",
   refunded: "gray",
   cancelled: "gray",
+};
+
+/** Labeluri în română pentru fiecare status de dispută */
+export const DISPUTE_STATUS_LABELS: Record<DisputeStatus, string> = {
+  open: "Deschisă — în așteptare",
+  under_review: "În analiză",
+  resolved_release: "Rezolvată — fonduri eliberate vânzătorului",
+  resolved_refund: "Rezolvată — cumpărător rambursat",
+  resolved_split: "Rezolvată — sumă împărțită",
+  closed: "Închisă",
 };
 
 /** Calculează valoarea escrow-ului (fee 0% implicit la launch) */

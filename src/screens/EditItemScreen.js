@@ -52,6 +52,7 @@ import {
 import {
   getCategoryAttributes,
   getOptionLabel,
+  isCustomOptionValue,
 } from "../constants/categoryAttributes";
 import { getCategoryImageByPath } from "../constants/categoryVisuals";
 
@@ -633,6 +634,8 @@ export default function EditItemScreen({ navigation, route }) {
   const [attributeValues, setAttributeValues] = useState(() =>
     getInitialAttributeValues(passedItem),
   );
+  const [customOptionText, setCustomOptionText] = useState("");
+  const [showCustomOptionInput, setShowCustomOptionInput] = useState(false);
 
   const [localImages, setLocalImages] = useState(initialImages);
 
@@ -930,12 +933,25 @@ export default function EditItemScreen({ navigation, route }) {
     [categoryPath],
   );
 
-  const openAttributePicker = useCallback((attribute) => {
-    setActiveAttribute(attribute);
-  }, []);
+  const openAttributePicker = useCallback(
+    (attribute) => {
+      const currentValue = attributeValues[attribute.key] || "";
+      const isKnownOption = (attribute.options || []).some(
+        (o) => o.value === currentValue,
+      );
+      const isCustom = !!currentValue && !isKnownOption;
+
+      setShowCustomOptionInput(isCustom);
+      setCustomOptionText(isCustom ? currentValue : "");
+      setActiveAttribute(attribute);
+    },
+    [attributeValues],
+  );
 
   const closeAttributePicker = useCallback(() => {
     setActiveAttribute(null);
+    setShowCustomOptionInput(false);
+    setCustomOptionText("");
   }, []);
 
   const selectAttributeOption = useCallback((attributeKey, value) => {
@@ -944,7 +960,27 @@ export default function EditItemScreen({ navigation, route }) {
       [attributeKey]: value,
     }));
     setActiveAttribute(null);
+    setShowCustomOptionInput(false);
+    setCustomOptionText("");
   }, []);
+
+  const onPressAttributeOption = useCallback(
+    (attribute, option) => {
+      if (isCustomOptionValue(option.value)) {
+        setShowCustomOptionInput(true);
+        setCustomOptionText("");
+        return;
+      }
+      selectAttributeOption(attribute.key, option.value);
+    },
+    [selectAttributeOption],
+  );
+
+  const saveCustomOptionText = useCallback(() => {
+    const text = customOptionText.trim();
+    if (!text || !activeAttribute) return;
+    selectAttributeOption(activeAttribute.key, text);
+  }, [customOptionText, activeAttribute, selectAttributeOption]);
 
   const onSave = useCallback(async () => {
     setErrorMsg("");
@@ -1101,6 +1137,27 @@ export default function EditItemScreen({ navigation, route }) {
     );
   }
 
+  if (passedItem.status && passedItem.status !== "active") {
+    return (
+      <View style={[S.screen, { paddingTop: insets.top + 12 }]}>
+        <HeaderBackButton onPress={goBackSafe} top={insets.top + 10} />
+
+        <View style={S.center}>
+          <Text style={S.h1}>
+            {passedItem.status === "reserved"
+              ? "Articol rezervat"
+              : "Articol vândut"}
+          </Text>
+          <Text style={S.mutedText}>
+            {passedItem.status === "reserved"
+              ? "Un cumpărător e la mijlocul unei plăți pentru acest articol — nu poate fi editat până se finalizează sau se anulează comanda."
+              : "Acest articol a fost deja vândut și nu mai poate fi editat."}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={S.screen}>
       <HeaderBackButton onPress={goBackSafe} top={insets.top + 10} />
@@ -1173,7 +1230,7 @@ export default function EditItemScreen({ navigation, route }) {
 
             {dynamicAttributes.map((attribute) => {
               const value = attributeValues[attribute.key] || "";
-              const displayValue = getOptionLabel(attribute.options, value);
+              const displayValue = getOptionLabel(attribute.options, value) || value;
 
               return (
                 <AttributeSelectField
@@ -1425,15 +1482,15 @@ export default function EditItemScreen({ navigation, route }) {
             </Text>
 
             {activeAttributeOptions.map((option) => {
-              const selected = activeAttributeValue === option.value;
+              const selected =
+                activeAttributeValue === option.value ||
+                (isCustomOptionValue(option.value) && showCustomOptionInput);
 
               return (
                 <TouchableOpacity
                   key={option.value}
                   activeOpacity={0.88}
-                  onPress={() =>
-                    selectAttributeOption(activeAttribute.key, option.value)
-                  }
+                  onPress={() => onPressAttributeOption(activeAttribute, option)}
                   style={S.optionRow}
                 >
                   <View style={S.optionTextWrap}>
@@ -1445,6 +1502,29 @@ export default function EditItemScreen({ navigation, route }) {
                 </TouchableOpacity>
               );
             })}
+
+            {showCustomOptionInput && (
+              <View style={S.customOptionBox}>
+                <TextInput
+                  value={customOptionText}
+                  onChangeText={setCustomOptionText}
+                  placeholder="Scrie aici..."
+                  placeholderTextColor={S.placeholder.color}
+                  style={S.customOptionInput}
+                  autoFocus
+                  onSubmitEditing={saveCustomOptionText}
+                  returnKeyType="done"
+                />
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={saveCustomOptionText}
+                  style={S.customOptionSaveBtn}
+                  disabled={!customOptionText.trim()}
+                >
+                  <Text style={S.customOptionSaveText}>Salvează</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </ScrollView>
         </View>
       </Modal>
@@ -1797,6 +1877,38 @@ function makeStyles(tokens) {
     optionSelected: {
       color: primary,
       fontSize: 22,
+      fontWeight: "900",
+    },
+
+    customOptionBox: {
+      marginTop: 4,
+      marginBottom: 10,
+    },
+
+    customOptionInput: {
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 13,
+      fontSize: 16,
+      fontWeight: "700",
+      backgroundColor: card,
+      color: text,
+      marginBottom: 10,
+    },
+
+    customOptionSaveBtn: {
+      height: 50,
+      borderRadius: 16,
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    customOptionSaveText: {
+      color: "#FFFFFF",
+      fontSize: 16,
       fontWeight: "900",
     },
 

@@ -40,6 +40,9 @@ import ChatScreen from "../screens/ChatScreen";
 import CheckoutScreen from "../screens/CheckoutScreen";
 import ShippingAddressesScreen from "../screens/ShippingAddressesScreen";
 import OrderStatusScreen from "../screens/OrderStatusScreen";
+import DisputeScreen from "../screens/DisputeScreen";
+import AdminDisputesScreen from "../screens/AdminDisputesScreen";
+import AdminDisputeDetailScreen from "../screens/AdminDisputeDetailScreen";
 
 // Screens – Auth
 import WelcomeScreen from "../screens/WelcomeScreen";
@@ -53,6 +56,7 @@ import MyItemsScreen from "../screens/MyItemsScreen";
 import FavoritesScreen from "../screens/FavoritesScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import ThemeSettingsScreen from "../screens/ThemeSettingsScreen";
+import SecurityScreen from "../screens/SecurityScreen";
 import BalanceScreen from "../screens/BalanceScreen";
 import OrdersScreen from "../screens/OrdersScreen";
 import VacationModeScreen from "../screens/VacationModeScreen";
@@ -126,6 +130,7 @@ function MobileRootStack() {
         name={ROUTES.ThemeSettings}
         component={ThemeSettingsScreen}
       />
+      <Stack.Screen name={ROUTES.Security} component={SecurityScreen} />
       <Stack.Screen name={ROUTES.Balance} component={BalanceScreen} />
       <Stack.Screen name={ROUTES.Orders} component={OrdersScreen} />
       <Stack.Screen name={ROUTES.VacationMode} component={VacationModeScreen} />
@@ -140,6 +145,9 @@ function MobileRootStack() {
         component={ShippingAddressesScreen}
       />
       <Stack.Screen name={ROUTES.OrderStatus} component={OrderStatusScreen} />
+      <Stack.Screen name={ROUTES.Dispute} component={DisputeScreen} />
+      <Stack.Screen name={ROUTES.AdminDisputes} component={AdminDisputesScreen} />
+      <Stack.Screen name={ROUTES.AdminDisputeDetail} component={AdminDisputeDetailScreen} />
 
       {/* ── Image viewer ── */}
       <Stack.Screen

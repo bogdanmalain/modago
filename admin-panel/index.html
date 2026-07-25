@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ModaGo — Admin Dispute</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px 16px 80px;
+    background: #f5f5f5;
+    color: #111;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #000; color: #fff; }
+    .card { background: #1c1c1e !important; }
+    input { background: #1c1c1e; color: #fff; border-color: #3a3a3c !important; }
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #6e6e73; font-size: 13px; margin-bottom: 24px; }
+  .card {
+    background: #fff;
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .card h3 { margin: 0 0 8px; font-size: 15px; }
+  .card .reason { font-size: 14px; margin-bottom: 8px; }
+  .badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: #fbe9e9;
+    color: #b00020;
+    margin-bottom: 8px;
+  }
+  .badge.review { background: #fff6e0; color: #8a6d00; }
+  .badge.resolved { background: #e3f5e5; color: #1e7d32; }
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #e5e5e5;
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+  button {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .btn-login { background: #2ca6a4; }
+  .btn-release { background: #2ca6a4; }
+  .btn-refund { background: #b00020; }
+  .btn-split { background: #6e6e73; }
+  .btn-back { background: #6e6e73; width: auto; padding: 8px 14px; display: inline-block; margin-bottom: 16px; }
+  .evidence-img { width: 100%; border-radius: 10px; margin-bottom: 8px; }
+  .evidence-author { font-size: 12px; color: #6e6e73; margin-bottom: 4px; font-weight: 600; }
+  .empty { text-align: center; color: #6e6e73; padding: 40px 0; }
+  .error { color: #b00020; font-size: 13px; margin-top: 8px; }
+  #logout { position: fixed; top: 16px; right: 16px; width: auto; padding: 8px 14px; background: #6e6e73; }
+  .chat { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin-bottom: 12px; }
+  .chat-empty { color: #6e6e73; font-size: 13px; text-align: center; padding: 12px 0; }
+  .chat-msg { max-width: 85%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.4; }
+  .chat-msg .who { font-size: 11px; font-weight: 700; margin-bottom: 2px; opacity: 0.7; }
+  .chat-msg.admin { align-self: flex-end; background: #2ca6a4; color: #fff; }
+  .chat-msg.other { align-self: flex-start; background: #eee; color: #111; }
+  @media (prefers-color-scheme: dark) { .chat-msg.other { background: #2c2c2e; color: #fff; } }
+  .chat-row { display: flex; gap: 8px; }
+  .chat-row input { margin-bottom: 0; flex: 1; }
+  .chat-row button { width: auto; padding: 10px 16px; margin-bottom: 0; background: #2ca6a4; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tab-btn {
+    width: auto;
+    padding: 8px 16px;
+    margin-bottom: 0;
+    background: transparent;
+    color: #6e6e73;
+    border: 1px solid #e5e5e5;
+  }
+  .tab-btn.active { background: #2ca6a4; color: #fff; border-color: #2ca6a4; }
+  @media (prefers-color-scheme: dark) { .tab-btn { border-color: #3a3a3c; } }
+  .wd-meta { font-size: 13px; margin-bottom: 4px; }
+  .wd-meta b { font-weight: 700; }
+  .wd-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .wd-actions button { margin-bottom: 0; }
+  .btn-approve { background: #2ca6a4; }
+  .btn-reject { background: #b00020; }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_URL = "https://hvtlibovcawhgiqwgdte.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh2dGxpYm92Y2F3aGdpcXdnZHRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1OTgzMjgsImV4cCI6MjA4MDE3NDMyOH0.RURTQ0HThO7Q6HurTl35An0q2Ex3aYIDJ5GoUArqu2E";
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const DISPUTE_STATUS_LABELS = {
+  open: "Deschisă — în așteptare",
+  under_review: "În analiză",
+  resolved_release: "Rezolvată — fonduri eliberate",
+  resolved_refund: "Rezolvată — cumpărător rambursat",
+  resolved_split: "Rezolvată — sumă împărțită",
+  closed: "Închisă",
+};
+
+const app = document.getElementById("app");
+
+function h(html) { app.innerHTML = html; }
+
+async function getSession() {
+  const { data } = await supabase.auth.getSession();
+  return data?.session ?? null;
+}
+
+async function renderLogin(errorMsg) {
+  h(`
+    <h1>ModaGo — Admin Dispute</h1>
+    <p class="sub">Autentifică-te cu contul de admin.</p>
+    <div class="card">
+      <input id="email" type="email" placeholder="Email" autocomplete="username" />
+      <input id="password" type="password" placeholder="Parolă" autocomplete="current-password" />
+      <button class="btn-login" id="loginBtn">Intră</button>
+      ${errorMsg ? `<div class="error">${errorMsg}</div>` : ""}
+    </div>
+  `);
+  document.getElementById("loginBtn").onclick = async () => {
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return renderLogin(error.message);
+    boot();
+  };
+}
+
+async function isAdmin(userId) {
+  const { data } = await supabase.from("profiles").select("is_admin").eq("id", userId).maybeSingle();
+  return !!data?.is_admin;
+}
+
+async function getOpenDisputes() {
+  const { data, error } = await supabase
+    .from("disputes")
+    .select("*, order:orders(id, price_mdl, buyer_id, seller_id, item:items(title))")
+    .in("status", ["open", "under_review"])
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+async function getResolvedDisputes() {
+  const { data, error } = await supabase
+    .from("disputes")
+    .select("*, order:orders(id, price_mdl, buyer_id, seller_id, item:items(title))")
+    .in("status", ["resolved_release", "resolved_refund", "resolved_split", "closed"])
+    .order("resolved_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+async function getDisputeEvidence(disputeId) {
+  const { data, error } = await supabase
+    .from("dispute_evidence")
+    .select("*")
+    .eq("dispute_id", disputeId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+async function signedUrl(path) {
+  const { data } = await supabase.storage.from("dispute-evidence").createSignedUrl(path, 3600);
+  return data?.signedUrl ?? null;
+}
+
+async function resolveDispute(orderId, trigger, splitPct) {
+  const { error } = await supabase.functions.invoke("release-funds", {
+    body: { order_id: orderId, trigger, ...(splitPct !== undefined ? { split_refund_pct: splitPct } : {}) },
+  });
+  if (error) throw new Error(error.message);
+}
+
+async function getDisputeMessages(disputeId) {
+  const { data, error } = await supabase
+    .from("dispute_messages")
+    .select("*")
+    .eq("dispute_id", disputeId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+async function sendDisputeMessage(disputeId, body, senderId) {
+  const { error } = await supabase
+    .from("dispute_messages")
+    .insert({ dispute_id: disputeId, sender_id: senderId, body });
+  if (error) throw error;
+}
+
+async function attachProfiles(requests) {
+  const userIds = [...new Set(requests.map((r) => r.user_id))];
+  if (userIds.length === 0) return requests;
+
+  const { data: profiles, error } = await supabase
+    .from("profiles")
+    .select("id, username")
+    .in("id", userIds);
+  if (error) throw error;
+
+  const byId = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]));
+  return requests.map((r) => ({ ...r, profile: byId[r.user_id] ?? null }));
+}
+
+async function getPendingWithdrawals() {
+  const { data, error } = await supabase
+    .from("withdrawal_requests")
+    .select("*")
+    .eq("status", "pending")
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return attachProfiles(data ?? []);
+}
+
+async function getProcessedWithdrawals() {
+  const { data, error } = await supabase
+    .from("withdrawal_requests")
+    .select("*")
+    .in("status", ["paid", "rejected"])
+    .order("processed_at", { ascending: false })
+    .limit(30);
+  if (error) throw error;
+  return attachProfiles(data ?? []);
+}
+
+async function processWithdrawal(request, status) {
+  const { error } = await supabase
+    .from("withdrawal_requests")
+    .update({ status, processed_at: new Date().toISOString() })
+    .eq("id", request.id);
+  if (error) throw error;
+
+  const copy = status === "paid"
+    ? { title: "Retragere efectuată", body: `Ți-am trimis ${request.amount_mdl} MDL — verifică contul.` }
+    : { title: "Retragere respinsă", body: `Cererea ta de retragere (${request.amount_mdl} MDL) a fost respinsă.` };
+
+  await supabase.from("notifications").insert({
+    user_id: request.user_id,
+    type: status === "paid" ? "withdrawal_paid" : "withdrawal_rejected",
+    title: copy.title,
+    body: copy.body,
+  });
+}
+
+function logoutButton() {
+  const btn = document.createElement("button");
+  btn.id = "logout";
+  btn.textContent = "Ieși";
+  btn.onclick = async () => { await supabase.auth.signOut(); boot(); };
+  document.body.appendChild(btn);
+}
+
+function tabsHtml(active) {
+  return `
+    <div class="tabs">
+      <button class="tab-btn ${active === "disputes" ? "active" : ""}" id="tabDisputes">Dispute</button>
+      <button class="tab-btn ${active === "withdrawals" ? "active" : ""}" id="tabWithdrawals">Retrageri</button>
+    </div>
+  `;
+}
+
+function wireTabs() {
+  document.getElementById("tabDisputes").onclick = renderList;
+  document.getElementById("tabWithdrawals").onclick = renderWithdrawals;
+}
+
+function disputeCard(d) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.style.cursor = "pointer";
+  card.innerHTML = `
+    <span class="badge ${d.status === "under_review" ? "review" : ""} ${d.status.startsWith("resolved") || d.status === "closed" ? "resolved" : ""}">${DISPUTE_STATUS_LABELS[d.status] ?? d.status}</span>
+    <h3>${d.order?.item?.title ?? "Produs"} · ${d.order?.price_mdl ?? "?"} MDL</h3>
+    <div class="reason">${d.reason}</div>
+  `;
+  card.onclick = () => renderDetail(d);
+  return card;
+}
+
+async function renderList() {
+  document.getElementById("logout")?.remove();
+  logoutButton();
+  h(`${tabsHtml("disputes")}<h1>Dispute</h1><p class="sub">Se încarcă...</p>`);
+
+  let open, resolved;
+  try {
+    [open, resolved] = await Promise.all([getOpenDisputes(), getResolvedDisputes()]);
+  } catch (e) {
+    h(`${tabsHtml("disputes")}<h1>Dispute</h1><div class="error">${e.message}</div>`);
+    wireTabs();
+    return;
+  }
+
+  h(`
+    ${tabsHtml("disputes")}
+    <h1>Dispute</h1>
+    <p class="sub">${open.length} activ${open.length === 1 ? "ă" : "e"}</p>
+    <div id="listOpen"></div>
+    <h1 style="margin-top:28px">Istoric (rezolvate)</h1>
+    <div id="listResolved"></div>
+  `);
+  wireTabs();
+
+  const listOpen = document.getElementById("listOpen");
+  if (open.length === 0) {
+    listOpen.innerHTML = `<div class="empty">Nu există dispute active.</div>`;
+  } else {
+    open.forEach((d) => listOpen.appendChild(disputeCard(d)));
+  }
+
+  const listResolved = document.getElementById("listResolved");
+  if (resolved.length === 0) {
+    listResolved.innerHTML = `<div class="empty">Nicio dispută rezolvată încă.</div>`;
+  } else {
+    resolved.forEach((d) => listResolved.appendChild(disputeCard(d)));
+  }
+}
+
+const WITHDRAWAL_STATUS_LABELS = { pending: "În așteptare", paid: "Plătită", rejected: "Respinsă" };
+
+function withdrawalCard(w, { actionable }) {
+  const card = document.createElement("div");
+  card.className = "card";
+  const badgeClass = w.status === "paid" ? "resolved" : w.status === "rejected" ? "" : "review";
+  card.innerHTML = `
+    <span class="badge ${badgeClass}">${WITHDRAWAL_STATUS_LABELS[w.status] ?? w.status}</span>
+    <h3>${w.amount_mdl} MDL — ${w.profile?.username ?? "user necunoscut"}</h3>
+    <div class="wd-meta"><b>Titular card:</b> ${w.card_holder_name ?? "-"}</div>
+    <div class="wd-meta"><b>Card:</b> •••• ${w.card_number_last4 ?? "----"}</div>
+    ${w.iban ? `<div class="wd-meta"><b>IBAN:</b> ${w.iban}</div>` : ""}
+    <div class="wd-meta"><b>Cerută:</b> ${new Date(w.created_at).toLocaleString("ro-RO")}</div>
+  `;
+  if (actionable) {
+    const actions = document.createElement("div");
+    actions.className = "wd-actions";
+    actions.innerHTML = `
+      <button class="btn-approve" style="flex:1">Marchează plătit</button>
+      <button class="btn-reject" style="flex:1">Respinge</button>
+    `;
+    const [approveBtn, rejectBtn] = actions.querySelectorAll("button");
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "error";
+
+    const doProcess = async (status, label) => {
+      if (!confirm(`${label} — sigur? Ai trimis deja banii manual dacă marchezi plătit.`)) return;
+      approveBtn.disabled = true;
+      rejectBtn.disabled = true;
+      try {
+        await processWithdrawal(w, status);
+        renderWithdrawals();
+      } catch (e) {
+        errorDiv.textContent = e.message;
+        approveBtn.disabled = false;
+        rejectBtn.disabled = false;
+      }
+    };
+    approveBtn.onclick = () => doProcess("paid", "Marchează plătit");
+    rejectBtn.onclick = () => doProcess("rejected", "Respinge cererea");
+
+    card.appendChild(actions);
+    card.appendChild(errorDiv);
+  }
+  return card;
+}
+
+async function renderWithdrawals() {
+  document.getElementById("logout")?.remove();
+  logoutButton();
+  h(`${tabsHtml("withdrawals")}<h1>Retrageri</h1><p class="sub">Se încarcă...</p>`);
+
+  let pending, processed;
+  try {
+    [pending, processed] = await Promise.all([getPendingWithdrawals(), getProcessedWithdrawals()]);
+  } catch (e) {
+    h(`${tabsHtml("withdrawals")}<h1>Retrageri</h1><div class="error">${e.message}</div>`);
+    wireTabs();
+    return;
+  }
+
+  h(`
+    ${tabsHtml("withdrawals")}
+    <h1>Retrageri</h1>
+    <p class="sub">${pending.length} în așteptare</p>
+    <div id="listPending"></div>
+    <h1 style="margin-top:28px">Istoric</h1>
+    <div id="listProcessed"></div>
+  `);
+  wireTabs();
+
+  const listPending = document.getElementById("listPending");
+  if (pending.length === 0) {
+    listPending.innerHTML = `<div class="empty">Nicio cerere în așteptare.</div>`;
+  } else {
+    pending.forEach((w) => listPending.appendChild(withdrawalCard(w, { actionable: true })));
+  }
+
+  const listProcessed = document.getElementById("listProcessed");
+  if (processed.length === 0) {
+    listProcessed.innerHTML = `<div class="empty">Nicio cerere procesată încă.</div>`;
+  } else {
+    processed.forEach((w) => listProcessed.appendChild(withdrawalCard(w, { actionable: false })));
+  }
+}
+
+async function renderDetail(dispute) {
+  document.getElementById("logout")?.remove();
+  logoutButton();
+  h(`<button class="btn-back" id="backBtn">← Înapoi</button><h1>Se încarcă...</h1>`);
+  document.getElementById("backBtn").onclick = renderList;
+
+  const order = dispute.order;
+  let evidence = [];
+  try {
+    evidence = await getDisputeEvidence(dispute.id);
+  } catch {}
+
+  const evidenceHtml = await Promise.all(evidence.map(async (e) => {
+    const author = e.uploaded_by === order.buyer_id ? "Cumpărător" : "Vânzător";
+    if (e.type === "image" && e.storage_path) {
+      const url = await signedUrl(e.storage_path);
+      return `<div class="evidence-author">${author}</div>${url ? `<img class="evidence-img" src="${url}" />` : ""}`;
+    }
+    return `<div class="evidence-author">${author}</div><div class="reason">${e.description ?? ""}</div>`;
+  }));
+
+  const offerHtml = (dispute.buyer_offer_pct !== null && dispute.buyer_offer_pct !== undefined)
+    ? `<div class="reason"><b>Negociere:</b> cumpărătorul a propus ${dispute.buyer_offer_pct}% — ${
+        dispute.offer_status === "rejected" ? "vânzătorul a respins" :
+        dispute.offer_status === "accepted" ? "acceptată" : "în așteptare"
+      }</div>`
+    : "";
+
+  const isResolved = ["resolved_release", "resolved_refund", "resolved_split", "closed"].includes(dispute.status);
+
+  const returnHtml = dispute.return_stage === "none" ? "" : `
+    <div class="card">
+      <h3>Retur produs</h3>
+      ${dispute.return_stage === "awaiting_return" ? `<div class="reason">Aștept ca cumpărătorul să trimită produsul înapoi cu AWB.</div>` : ""}
+      ${dispute.return_stage === "shipped" || dispute.return_stage === "received" ? `
+        <div class="reason"><b>AWB retur:</b> ${dispute.return_tracking_number ?? "-"}</div>
+        <div class="reason"><b>Cost AWB:</b> ${dispute.return_shipping_cost_mdl ?? "-"} MDL ${dispute.return_stage === "received" ? "(dedus din soldul vânzătorului — trimite-l manual cumpărătorului dacă n-ai făcut-o încă)" : "(va fi dedus din soldul vânzătorului la finalizare)"}</div>
+      ` : ""}
+    </div>
+  `;
+
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+
+  let chatMessages = [];
+  try {
+    chatMessages = await getDisputeMessages(dispute.id);
+  } catch {}
+
+  const chatHtml = chatMessages.length
+    ? chatMessages.map((m) => {
+        const isMe = m.sender_id === currentUser.id;
+        const who = isMe ? "Tu (admin)" : (m.sender_id === order.buyer_id ? "Cumpărător" : "Vânzător");
+        return `<div class="chat-msg ${isMe ? "admin" : "other"}"><div class="who">${who}</div>${m.body}</div>`;
+      }).join("")
+    : `<div class="chat-empty">Niciun mesaj încă — poți cere detalii suplimentare mai jos.</div>`;
+
+  h(`
+    <button class="btn-back" id="backBtn">← Înapoi</button>
+    <h1>${order?.item?.title ?? "Produs"} · ${order?.price_mdl ?? "?"} MDL</h1>
+    <div class="card">
+      <span class="badge ${dispute.status === "under_review" ? "review" : ""}">${DISPUTE_STATUS_LABELS[dispute.status] ?? dispute.status}</span>
+      <div class="reason"><b>Motiv:</b> ${dispute.reason}</div>
+      ${offerHtml}
+    </div>
+    ${evidence.length ? `<div class="card"><h3>Dovezi</h3>${evidenceHtml.join("<hr style='opacity:0.1;margin:10px 0'/>")}</div>` : ""}
+    ${returnHtml}
+    <div class="card">
+      <h3>Discuție cu cumpărătorul/vânzătorul</h3>
+      <div class="chat" id="chatBox">${chatHtml}</div>
+      ${isResolved
+        ? `<p class="sub">Disputa a fost finalizată — discuția e închisă.</p>`
+        : `
+        <div class="chat-row">
+          <input id="chatInput" type="text" placeholder="Scrie un mesaj..." maxlength="2000" />
+          <button id="chatSend">Trimite</button>
+        </div>
+        <div id="chatError" class="error"></div>
+      `}
+    </div>
+    ${!isResolved && dispute.return_stage === "none" ? `
+      <div class="card">
+        <h3>Rezolvă disputa</h3>
+        <p class="sub" style="margin-bottom:12px">Produsul rămâne la cumpărător — decizia privește doar banii din escrow.</p>
+        <button class="btn-release" id="btnRelease">Eliberează tot vânzătorului</button>
+        <button class="btn-refund" id="btnRefund">Rambursează tot cumpărătorului</button>
+        <button class="btn-split" id="btnSplit">Split 50/50</button>
+        <button class="btn-refund" id="btnRequireReturn" style="background:#8a6d00">Rambursează + cere retur produs</button>
+        <div id="resolveError" class="error"></div>
+      </div>
+    ` : ""}
+    ${!isResolved && dispute.return_stage === "shipped" ? `
+      <div class="card">
+        <h3>Finalizează returul</h3>
+        <p class="sub" style="margin-bottom:12px">Normal, vânzătorul confirmă primirea. Folosește asta doar dacă vânzătorul nu confirmă și tu ai verificat că AWB-ul a ajuns.</p>
+        <button class="btn-refund" id="btnForceReturn">Finalizează manual (fără așteptare vânzător)</button>
+        <div id="resolveError" class="error"></div>
+      </div>
+    ` : ""}
+  `);
+
+  document.getElementById("backBtn").onclick = renderList;
+
+  const chatBox = document.getElementById("chatBox");
+  chatBox.scrollTop = chatBox.scrollHeight;
+
+  if (!isResolved) {
+    const sendChat = async () => {
+      const input = document.getElementById("chatInput");
+      const text = input.value.trim();
+      if (!text) return;
+      document.getElementById("chatSend").disabled = true;
+      try {
+        await sendDisputeMessage(dispute.id, text, currentUser.id);
+        renderDetail(dispute);
+      } catch (e) {
+        document.getElementById("chatError").textContent = e.message;
+        document.getElementById("chatSend").disabled = false;
+      }
+    };
+    document.getElementById("chatSend").onclick = sendChat;
+    document.getElementById("chatInput").onkeydown = (e) => {
+      if (e.key === "Enter") sendChat();
+    };
+  }
+
+  if (!isResolved && dispute.return_stage === "none") {
+    const ids = ["btnRelease", "btnRefund", "btnSplit", "btnRequireReturn"];
+    const setBusy = (busy) => ids.forEach((id) => document.getElementById(id).disabled = busy);
+    const doResolve = async (trigger, label, pct) => {
+      if (!confirm(`${label} — sigur?`)) return;
+      setBusy(true);
+      try {
+        await resolveDispute(order.id, trigger, pct);
+        alert("Gata — disputa a fost rezolvată.");
+        renderList();
+      } catch (e) {
+        document.getElementById("resolveError").textContent = e.message;
+        setBusy(false);
+      }
+    };
+    document.getElementById("btnRelease").onclick = () => doResolve("admin_resolve_release", "Eliberează tot vânzătorului");
+    document.getElementById("btnRefund").onclick = () => doResolve("admin_resolve_refund", "Rambursează tot cumpărătorului");
+    document.getElementById("btnSplit").onclick = () => doResolve("admin_resolve_split", "Split 50/50", 50);
+    document.getElementById("btnRequireReturn").onclick = async () => {
+      if (!confirm("Cumpărătorul va trebui să trimită produsul înapoi înainte de rambursare — sigur?")) return;
+      setBusy(true);
+      try {
+        await resolveDispute(order.id, "admin_require_return");
+        alert("Gata — cumpărătorul a fost anunțat să trimită produsul înapoi.");
+        renderDetail(dispute);
+      } catch (e) {
+        document.getElementById("resolveError").textContent = e.message;
+        setBusy(false);
+      }
+    };
+  }
+
+  if (!isResolved && dispute.return_stage === "shipped") {
+    document.getElementById("btnForceReturn").onclick = async () => {
+      if (!confirm("Confirmi manual că produsul a ajuns la vânzător și declanșezi rambursarea completă?")) return;
+      const btn = document.getElementById("btnForceReturn");
+      btn.disabled = true;
+      try {
+        await resolveDispute(order.id, "admin_confirm_return");
+        alert("Gata — rambursare procesată. Nu uita să trimiți manual cumpărătorului costul AWB-ului.");
+        renderList();
+      } catch (e) {
+        document.getElementById("resolveError").textContent = e.message;
+        btn.disabled = false;
+      }
+    };
+  }
+}
+
+async function boot() {
+  const session = await getSession();
+  if (!session) return renderLogin();
+
+  const admin = await isAdmin(session.user.id);
+  if (!admin) {
+    h(`<h1>ModaGo — Admin Dispute</h1><div class="card">Contul <b>${session.user.email}</b> nu are drepturi de admin.</div><button class="btn-login" id="signoutBtn" style="margin-top:12px">Ieși</button>`);
+    document.getElementById("signoutBtn").onclick = async () => { await supabase.auth.signOut(); boot(); };
+    return;
+  }
+
+  renderList();
+}
+
+boot();
+</script>
+</body>
+</html>

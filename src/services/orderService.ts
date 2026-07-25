@@ -5,6 +5,7 @@
 // ================================================================
 
 import { supabase } from "../supabaseClient";
+import * as FileSystem from "expo-file-system/legacy";
 import type {
   Order,
   OrderWithDetails,
@@ -152,6 +153,15 @@ export async function getMyBalance(): Promise<{
 
   (withdrawalsRes.data ?? []).forEach((w) => {
     available_mdl -= Number(w.amount_mdl);
+  });
+
+  const { data: adjustments, error: adjustmentsError } = await supabase
+    .from("balance_adjustments")
+    .select("amount_mdl")
+    .eq("user_id", userId);
+  if (adjustmentsError) throw adjustmentsError;
+  (adjustments ?? []).forEach((a) => {
+    available_mdl += Number(a.amount_mdl);
   });
 
   return {
@@ -389,7 +399,50 @@ export async function openDispute(
     .single();
 
   if (error) throw error;
+
+  // Marcăm comanda ca disputată — blochează auto-release-ul și confirmarea
+  // directă de livrare cât timp disputa e deschisă. Permis de RLS
+  // (orders_update_buyer: shipped → disputed).
+  const { error: orderError } = await supabase
+    .from("orders")
+    .update({ status: "disputed", has_open_ticket: true })
+    .eq("id", payload.order_id);
+
+  if (orderError) throw orderError;
+
   return data;
+}
+
+/**
+ * Preia disputa unei comenzi (cel mult una per comandă, în designul actual),
+ * sau null dacă nu s-a deschis niciodată una.
+ */
+export async function getDisputeForOrder(
+  orderId: string,
+): Promise<Dispute | null> {
+  const { data, error } = await supabase
+    .from("disputes")
+    .select("*")
+    .eq("order_id", orderId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * URL semnat temporar pentru o poză de dovadă (bucket-ul e privat —
+ * vizibil doar pentru buyer/seller-ul comenzii, via RLS pe storage.objects).
+ */
+export async function getDisputeEvidenceSignedUrl(
+  storagePath: string,
+): Promise<string | null> {
+  const { data, error } = await supabase.storage
+    .from("dispute-evidence")
+    .createSignedUrl(storagePath, 60 * 60);
+
+  if (error) return null;
+  return data?.signedUrl ?? null;
 }
 
 export async function addDisputeEvidence(
@@ -417,8 +470,21 @@ export async function addDisputeEvidence(
   return data;
 }
 
+function base64ToUint8Array(base64: string): Uint8Array {
+  const g: any = global as any;
+  const binary = g.atob ? g.atob(base64) : atob(base64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 /**
- * Upload imagine dovadă în Supabase Storage
+ * Upload imagine dovadă în Supabase Storage.
+ * Notă: NU folosim fetch(uri).blob() — pe Android, pentru URI-uri
+ * content:// (cele întoarse de ImagePicker din galerie), asta aruncă des
+ * "Network request failed". Citim fișierul ca base64 via expo-file-system,
+ * la fel ca la upload-ul pozelor de anunț (AddItemScreen.js).
  */
 export async function uploadDisputeImage(
   disputeId: string,
@@ -427,15 +493,21 @@ export async function uploadDisputeImage(
   const userId = (await supabase.auth.getUser()).data.user?.id;
   if (!userId) throw new Error("Utilizator neautentificat");
 
-  // Convertim URI local → Blob
-  const response = await fetch(uri);
-  const blob = await response.blob();
-  const ext = uri.split(".").pop() ?? "jpg";
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info?.exists) throw new Error("Fișierul nu există pe device.");
+
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  if (!base64) throw new Error("Nu pot citi poza (base64 gol).");
+
+  const bytes = base64ToUint8Array(base64);
+  const ext = uri.split(".").pop()?.toLowerCase() ?? "jpg";
   const path = `${disputeId}/${userId}_${Date.now()}.${ext}`;
 
   const { error: uploadError } = await supabase.storage
     .from("dispute-evidence")
-    .upload(path, blob, { contentType: `image/${ext}` });
+    .upload(path, bytes, { contentType: `image/${ext === "jpg" ? "jpeg" : ext}` });
 
   if (uploadError) throw uploadError;
   return path;
@@ -452,6 +524,213 @@ export async function getDisputeEvidence(
 
   if (error) throw error;
   return data ?? [];
+}
+
+// ── ADMIN ─────────────────────────────────────────────────────────
+// Necesită profiles.is_admin = true pentru contul curent — vizibilitatea
+// e garantată de RLS (disputes_select_admin / orders_select_admin), nu
+// doar de UI. Rezolvarea efectivă e validată din nou server-side în
+// release-funds (isPrivileged), deci gating-ul de UI e doar confort.
+
+export async function isCurrentUserAdmin(): Promise<boolean> {
+  const userId = (await supabase.auth.getUser()).data.user?.id;
+  if (!userId) return false;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("is_admin")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) return false;
+  return !!data?.is_admin;
+}
+
+export interface OpenDisputeSummary extends Dispute {
+  order: {
+    id: string;
+    price_mdl: number;
+    buyer_id: string;
+    seller_id: string;
+    item?: { title?: string } | null;
+  };
+}
+
+export async function getOpenDisputes(): Promise<OpenDisputeSummary[]> {
+  const { data, error } = await supabase
+    .from("disputes")
+    .select(
+      "*, order:orders(id, price_mdl, buyer_id, seller_id, item:items(title))",
+    )
+    .in("status", ["open", "under_review"])
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as OpenDisputeSummary[];
+}
+
+export async function getResolvedDisputes(): Promise<OpenDisputeSummary[]> {
+  const { data, error } = await supabase
+    .from("disputes")
+    .select(
+      "*, order:orders(id, price_mdl, buyer_id, seller_id, item:items(title))",
+    )
+    .in("status", ["resolved_release", "resolved_refund", "resolved_split", "closed"])
+    .order("resolved_at", { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []) as OpenDisputeSummary[];
+}
+
+export type AdminResolution =
+  | "admin_resolve_release"
+  | "admin_resolve_refund"
+  | "admin_resolve_split";
+
+export async function resolveDisputeAsAdmin(
+  orderId: string,
+  trigger: AdminResolution,
+  splitRefundPct?: number,
+): Promise<void> {
+  const { error } = await supabase.functions.invoke("release-funds", {
+    body: {
+      order_id: orderId,
+      trigger,
+      ...(splitRefundPct !== undefined
+        ? { split_refund_pct: splitRefundPct }
+        : {}),
+    },
+  });
+
+  if (error) throw new Error(error.message);
+}
+
+// ── NEGOCIERE DIRECTĂ (buyer propune, seller acceptă/respinge) ────
+// Acceptarea mută bani reale, deci trece prin release-funds (validat
+// server-side). Propunerea și respingerea sunt doar update-uri de status,
+// permise direct de RLS (disputes_update_buyer_offer / _seller_reject).
+
+export async function proposeRefundOffer(
+  disputeId: string,
+  pct: number,
+): Promise<void> {
+  const { error } = await supabase
+    .from("disputes")
+    .update({ buyer_offer_pct: pct, offer_status: "pending" })
+    .eq("id", disputeId);
+
+  if (error) throw error;
+}
+
+export async function rejectRefundOffer(
+  disputeId: string,
+  orderId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("disputes")
+    .update({ offer_status: "rejected", status: "under_review" })
+    .eq("id", disputeId);
+
+  if (error) throw error;
+
+  // Non-blocking: notificarea nu trebuie să blocheze respingerea ofertei.
+  try {
+    await supabase.functions.invoke("push-notification", {
+      body: { order_id: orderId, event: "dispute_escalated", recipient: "buyer" },
+    });
+  } catch {
+    // ignorăm — vezi comentariul de mai sus
+  }
+}
+
+export async function acceptRefundOffer(orderId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke("release-funds", {
+    body: { order_id: orderId, trigger: "seller_accept_offer" },
+  });
+
+  if (error) throw new Error(error.message);
+}
+
+// ── DISPUTE CHAT ──────────────────────────────────────────────────
+
+export interface DisputeMessage {
+  id: string;
+  dispute_id: string;
+  sender_id: string;
+  body: string;
+  created_at: string;
+}
+
+export async function getDisputeMessages(
+  disputeId: string,
+): Promise<DisputeMessage[]> {
+  const { data, error } = await supabase
+    .from("dispute_messages")
+    .select("*")
+    .eq("dispute_id", disputeId)
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function sendDisputeMessage(
+  disputeId: string,
+  body: string,
+): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Nu ești autentificat.");
+
+  const { error } = await supabase
+    .from("dispute_messages")
+    .insert({ dispute_id: disputeId, sender_id: user.id, body });
+
+  if (error) throw error;
+}
+
+// ── RETUR ÎNAINTE DE RAMBURSARE ──────────────────────────────────
+// Folosit când vânzătorul e vinovat (produs neconform) — cumpărătorul
+// trebuie să trimită produsul înapoi înainte de rambursarea completă,
+// iar costul AWB-ului e scăzut din soldul vânzătorului, nu din al lui.
+
+export async function requireReturnBeforeRefund(orderId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke("release-funds", {
+    body: { order_id: orderId, trigger: "admin_require_return" },
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function submitReturnShipment(
+  disputeId: string,
+  trackingNumber: string,
+  shippingCostMdl: number,
+): Promise<void> {
+  const { error } = await supabase
+    .from("disputes")
+    .update({
+      return_stage: "shipped",
+      return_tracking_number: trackingNumber,
+      return_shipping_cost_mdl: shippingCostMdl,
+      return_shipped_at: new Date().toISOString(),
+    })
+    .eq("id", disputeId);
+  if (error) throw error;
+}
+
+export async function confirmReturnReceived(orderId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke("release-funds", {
+    body: { order_id: orderId, trigger: "seller_confirm_return" },
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function adminForceConfirmReturn(orderId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke("release-funds", {
+    body: { order_id: orderId, trigger: "admin_confirm_return" },
+  });
+  if (error) throw new Error(error.message);
 }
 
 // ── REVIEWS ───────────────────────────────────────────────────────

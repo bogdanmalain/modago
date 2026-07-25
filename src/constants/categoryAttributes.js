@@ -10,7 +10,7 @@
 // - am păstrat Copii fără câmpul "Potrivit pentru"
 // - am păstrat atribute simple și coerente pentru MVP: Brand, Mărime, Stare, Culoare
 
-const BRAND_OPTIONS_FASHION = [
+export const BRAND_OPTIONS_FASHION = [
   { value: "zara", label: "Zara" },
   { value: "hm", label: "H&M" },
   { value: "bershka", label: "Bershka" },
@@ -339,4 +339,11 @@ export function getCategoryAttributes(categoryLeafKey) {
 export function getOptionLabel(options = [], value = "") {
   const found = options.find((item) => item.value === value);
   return found?.label || "";
+}
+
+// Valoarea specială care declanșează input liber de text (ex: "Alt brand", "Altă culoare").
+export const CUSTOM_OPTION_VALUE = "other";
+
+export function isCustomOptionValue(value) {
+  return value === CUSTOM_OPTION_VALUE;
 }

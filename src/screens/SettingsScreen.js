@@ -12,13 +12,14 @@
  * -> elementele neimplementate încă au alert simplu
  */
 
-import React, { useContext, useMemo, useCallback } from "react";
+import React, { useContext, useMemo, useCallback, useState, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Switch,
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,6 +31,12 @@ import HeaderBackButton, {
 } from "../components/HeaderBackButton";
 import { ThemeContext } from "../theme/ThemeProvider";
 import { ROUTES } from "../navigation/routes";
+import { isCurrentUserAdmin } from "../services/orderService";
+import { supabase } from "../supabaseClient";
+import {
+  setupPushNotifications,
+  clearPushToken,
+} from "../services/notificationService";
 
 function pickTok(tokens, key, fallback) {
   const v = tokens?.[key];
@@ -84,6 +91,59 @@ export default function SettingsScreen() {
 
   const S = useMemo(() => makeStyles(tokens, insets), [tokens, insets]);
 
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    isCurrentUserAdmin().then(setIsAdmin);
+  }, []);
+
+  const [userId, setUserId] = useState(null);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const uid = data?.user?.id ?? null;
+      setUserId(uid);
+      if (!uid) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("push_token")
+        .eq("id", uid)
+        .maybeSingle();
+      setPushEnabled(!!profile?.push_token);
+    })();
+  }, []);
+
+  const onTogglePush = useCallback(
+    async (value) => {
+      if (!userId) return;
+      setPushBusy(true);
+      try {
+        if (value) {
+          await setupPushNotifications(userId);
+        } else {
+          await clearPushToken(userId);
+        }
+        setPushEnabled(value);
+      } catch (e) {
+        Alert.alert("Eroare", "Nu am putut schimba setarea de notificări.");
+      } finally {
+        setPushBusy(false);
+      }
+    },
+    [userId],
+  );
+
+  const goSecurity = useCallback(() => {
+    navigation.navigate(ROUTES.Security);
+  }, [navigation]);
+
+  const goAdminDisputes = useCallback(() => {
+    navigation.navigate(ROUTES.AdminDisputes);
+  }, [navigation]);
+
   const onBack = useCallback(() => {
     if (navigation.canGoBack()) {
       navigation.goBack();
@@ -129,20 +189,48 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="shield-checkmark-outline"
             title="Securitate"
-            onPress={() => showPlaceholder("Securitate")}
+            onPress={goSecurity}
             S={S}
           />
         </View>
 
         <SectionTitle S={S}>Notificări</SectionTitle>
         <View style={S.card}>
-          <SettingsRow
-            icon="notifications-outline"
-            title="Notificări"
-            onPress={() => showPlaceholder("Notificări")}
-            S={S}
-          />
+          <View style={S.rowCard}>
+            <View style={S.rowLeft}>
+              <View style={S.rowIconWrap}>
+                <Ionicons
+                  name="notifications-outline"
+                  size={21}
+                  color={S.__colors.icon}
+                />
+              </View>
+              <Text style={S.rowTitle}>Notificări push</Text>
+            </View>
+
+            <Switch
+              value={pushEnabled}
+              onValueChange={onTogglePush}
+              disabled={pushBusy || !userId}
+              trackColor={{ false: S.__colors.border, true: S.__colors.primary }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
         </View>
+
+        {isAdmin && (
+          <>
+            <SectionTitle S={S}>Admin</SectionTitle>
+            <View style={S.card}>
+              <SettingsRow
+                icon="alert-circle-outline"
+                title="Dispute deschise"
+                onPress={goAdminDisputes}
+                S={S}
+              />
+            </View>
+          </>
+        )}
 
         <SectionTitle S={S}>Aplicație</SectionTitle>
         <View style={S.card}>
@@ -175,6 +263,7 @@ function makeStyles(tokens, insets) {
   const text = pickTok(tokens, "text", "#111827");
   const muted = pickTok(tokens, "muted", pickTok(tokens, "subtext", "#6B7280"));
   const shadowColor = pickTok(tokens, "shadowColor", "#000");
+  const primary = pickTok(tokens, "primary", pickTok(tokens, "accent", "#2563EB"));
 
   const topPad = insets.top + 10 + HEADER_BACK_SIZE + 20;
 
@@ -182,6 +271,8 @@ function makeStyles(tokens, insets) {
     __colors: {
       icon: text,
       chevron: muted,
+      border,
+      primary,
     },
 
     screen: {

@@ -51,6 +51,7 @@ import {
 import {
   getCategoryAttributes,
   getOptionLabel,
+  isCustomOptionValue,
 } from "../constants/categoryAttributes";
 import { getCategoryImageByPath } from "../constants/categoryVisuals";
 
@@ -481,6 +482,8 @@ export default function AddItemScreen({ navigation }) {
 
   const [activeAttribute, setActiveAttribute] = useState(null);
   const [attributeValues, setAttributeValues] = useState({});
+  const [customOptionText, setCustomOptionText] = useState("");
+  const [showCustomOptionInput, setShowCustomOptionInput] = useState(false);
 
   const [localImages, setLocalImages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -674,12 +677,25 @@ export default function AddItemScreen({ navigation }) {
     setAttributeValues({});
   }, []);
 
-  const openAttributePicker = useCallback((attribute) => {
-    setActiveAttribute(attribute);
-  }, []);
+  const openAttributePicker = useCallback(
+    (attribute) => {
+      const currentValue = attributeValues[attribute.key] || "";
+      const isKnownOption = (attribute.options || []).some(
+        (o) => o.value === currentValue,
+      );
+      const isCustom = !!currentValue && !isKnownOption;
+
+      setShowCustomOptionInput(isCustom);
+      setCustomOptionText(isCustom ? currentValue : "");
+      setActiveAttribute(attribute);
+    },
+    [attributeValues],
+  );
 
   const closeAttributePicker = useCallback(() => {
     setActiveAttribute(null);
+    setShowCustomOptionInput(false);
+    setCustomOptionText("");
   }, []);
 
   const selectAttributeOption = useCallback((attributeKey, value) => {
@@ -688,7 +704,27 @@ export default function AddItemScreen({ navigation }) {
       [attributeKey]: value,
     }));
     setActiveAttribute(null);
+    setShowCustomOptionInput(false);
+    setCustomOptionText("");
   }, []);
+
+  const onPressAttributeOption = useCallback(
+    (attribute, option) => {
+      if (isCustomOptionValue(option.value)) {
+        setShowCustomOptionInput(true);
+        setCustomOptionText("");
+        return;
+      }
+      selectAttributeOption(attribute.key, option.value);
+    },
+    [selectAttributeOption],
+  );
+
+  const saveCustomOptionText = useCallback(() => {
+    const text = customOptionText.trim();
+    if (!text || !activeAttribute) return;
+    selectAttributeOption(activeAttribute.key, text);
+  }, [customOptionText, activeAttribute, selectAttributeOption]);
 
   const publish = useCallback(async () => {
     setErrorMsg("");
@@ -874,7 +910,7 @@ export default function AddItemScreen({ navigation }) {
 
             {dynamicAttributes.map((attribute) => {
               const value = attributeValues[attribute.key] || "";
-              const displayValue = getOptionLabel(attribute.options, value);
+              const displayValue = getOptionLabel(attribute.options, value) || value;
 
               return (
                 <AttributeSelectField
@@ -1091,15 +1127,15 @@ export default function AddItemScreen({ navigation }) {
             </Text>
 
             {activeAttributeOptions.map((option) => {
-              const selected = activeAttributeValue === option.value;
+              const selected =
+                activeAttributeValue === option.value ||
+                (isCustomOptionValue(option.value) && showCustomOptionInput);
 
               return (
                 <TouchableOpacity
                   key={option.value}
                   activeOpacity={0.88}
-                  onPress={() =>
-                    selectAttributeOption(activeAttribute.key, option.value)
-                  }
+                  onPress={() => onPressAttributeOption(activeAttribute, option)}
                   style={S.optionRow}
                 >
                   <View style={S.optionTextWrap}>
@@ -1111,6 +1147,29 @@ export default function AddItemScreen({ navigation }) {
                 </TouchableOpacity>
               );
             })}
+
+            {showCustomOptionInput && (
+              <View style={S.customOptionBox}>
+                <TextInput
+                  value={customOptionText}
+                  onChangeText={setCustomOptionText}
+                  placeholder="Scrie aici..."
+                  placeholderTextColor={S.placeholder.color}
+                  style={S.customOptionInput}
+                  autoFocus
+                  onSubmitEditing={saveCustomOptionText}
+                  returnKeyType="done"
+                />
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={saveCustomOptionText}
+                  style={S.customOptionSaveBtn}
+                  disabled={!customOptionText.trim()}
+                >
+                  <Text style={S.customOptionSaveText}>Salvează</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </ScrollView>
         </View>
       </Modal>
@@ -1427,6 +1486,38 @@ function makeStyles(tokens) {
     optionSelected: {
       color: primary,
       fontSize: 22,
+      fontWeight: "900",
+    },
+
+    customOptionBox: {
+      marginTop: 4,
+      marginBottom: 10,
+    },
+
+    customOptionInput: {
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 13,
+      fontSize: 16,
+      fontWeight: "700",
+      backgroundColor: card,
+      color: text,
+      marginBottom: 10,
+    },
+
+    customOptionSaveBtn: {
+      height: 50,
+      borderRadius: 16,
+      backgroundColor: primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    customOptionSaveText: {
+      color: "#FFFFFF",
+      fontSize: 16,
       fontWeight: "900",
     },
 
