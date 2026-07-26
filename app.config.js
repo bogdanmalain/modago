@@ -50,9 +50,16 @@ export default {
       ],
       "@react-native-google-signin/google-signin",
       "expo-apple-authentication",
-      // Raportare de erori. Fără SENTRY_ORG/SENTRY_PROJECT + SENTRY_AUTH_TOKEN
-      // build-ul merge normal, dar stack trace-urile rămân minificate.
-      "@sentry/react-native",
+      // Raportare de erori. Încărcarea source maps are nevoie în plus de
+      // SENTRY_AUTH_TOKEN la build; fără el build-ul merge, dar stack
+      // trace-urile rămân minificate.
+      [
+        "@sentry/react-native",
+        {
+          organization: "modago",
+          project: "react-native",
+        },
+      ],
     ],
     extra: {
       supabaseUrl: process.env.SUPABASE_URL,
