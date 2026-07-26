@@ -41,5 +41,8 @@ yarn-error.*
 /android
 .env
 
+# manual DB backups (real user/order/payment data — never commit)
+/backups/
+
 # IDE
 .idea/

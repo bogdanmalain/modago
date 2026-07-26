@@ -44,5 +44,12 @@
     "@types/react": "~19.1.10",
     "babel-preset-expo": "^54.0.10",
     "typescript": "~5.9.2"
+  },
+  "overrides": {
+    "tar": "^7.5.22",
+    "shell-quote": "^1.10.0",
+    "@supabase/supabase-js": {
+      "ws": "^8.21.1"
+    }
   }
 }
