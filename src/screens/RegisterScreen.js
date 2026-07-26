@@ -291,6 +291,32 @@ export default function RegisterScreen({ navigation }) {
               />
             )}
 
+            <Text style={styles.legalNotice}>
+              Prin crearea contului confirmi că ai citit și accepți{" "}
+              <Text
+                style={styles.legalLink}
+                onPress={() =>
+                  navigation.navigate(ROUTES.LegalDocument, {
+                    documentId: "terms",
+                  })
+                }
+              >
+                Termenii și Condițiile
+              </Text>{" "}
+              și{" "}
+              <Text
+                style={styles.legalLink}
+                onPress={() =>
+                  navigation.navigate(ROUTES.LegalDocument, {
+                    documentId: "privacy",
+                  })
+                }
+              >
+                Politica de Confidențialitate
+              </Text>
+              .
+            </Text>
+
             {isSocialAuthAvailable() && (
               <>
                 <View style={styles.divider}>
@@ -450,6 +476,21 @@ function makeStyles(tokens, insets, kbOpen) {
       color: tokens.subtext ?? tokens.muted,
       fontWeight: "700",
       fontSize: 13,
+    },
+
+    legalNotice: {
+      marginTop: 14,
+      fontSize: 12,
+      lineHeight: 18,
+      textAlign: "center",
+      color: tokens.subtext ?? tokens.muted,
+      fontWeight: "600",
+    },
+
+    legalLink: {
+      color: tokens.primary ?? tokens.accent ?? "#2563EB",
+      fontWeight: "900",
+      textDecorationLine: "underline",
     },
   });
 }

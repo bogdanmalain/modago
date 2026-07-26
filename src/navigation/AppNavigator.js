@@ -58,6 +58,7 @@ import FavoritesScreen from "../screens/FavoritesScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 import ThemeSettingsScreen from "../screens/ThemeSettingsScreen";
 import SecurityScreen from "../screens/SecurityScreen";
+import LegalDocumentScreen from "../screens/LegalDocumentScreen";
 import BalanceScreen from "../screens/BalanceScreen";
 import OrdersScreen from "../screens/OrdersScreen";
 import VacationModeScreen from "../screens/VacationModeScreen";
@@ -132,6 +133,10 @@ function MobileRootStack() {
         component={ThemeSettingsScreen}
       />
       <Stack.Screen name={ROUTES.Security} component={SecurityScreen} />
+      <Stack.Screen
+        name={ROUTES.LegalDocument}
+        component={LegalDocumentScreen}
+      />
       <Stack.Screen name={ROUTES.Balance} component={BalanceScreen} />
       <Stack.Screen name={ROUTES.Orders} component={OrdersScreen} />
       <Stack.Screen name={ROUTES.VacationMode} component={VacationModeScreen} />
@@ -180,6 +185,12 @@ function AuthStack({ initialRouteName }) {
       <Stack.Screen
         name={ROUTES.ResetPassword}
         component={ResetPasswordScreen}
+      />
+      {/* Necesar aici: ecranul de înregistrare trimite spre Termeni și
+          Confidențialitate înainte ca utilizatorul să aibă cont. */}
+      <Stack.Screen
+        name={ROUTES.LegalDocument}
+        component={LegalDocumentScreen}
       />
     </Stack.Navigator>
   );
