@@ -48,8 +48,12 @@ export default function SecurityScreen() {
       Alert.alert("Lipsesc date", "Completează parola nouă și confirmarea.");
       return;
     }
-    if (password.length < 6) {
-      Alert.alert("Parolă prea scurtă", "Minim 6 caractere.");
+    if (password.length < 8) {
+      Alert.alert("Parolă prea scurtă", "Minim 8 caractere.");
+      return;
+    }
+    if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+      Alert.alert("Parolă prea slabă", "Parola trebuie să conțină litere și cifre.");
       return;
     }
     if (password !== password2) {

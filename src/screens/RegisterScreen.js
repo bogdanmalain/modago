@@ -117,8 +117,12 @@ export default function RegisterScreen({ navigation }) {
       notify("Lipsesc date", "Completează email + parolă.");
       return;
     }
-    if (password.length < 6) {
-      notify("Parolă prea scurtă", "Minim 6 caractere.");
+    if (password.length < 8) {
+      notify("Parolă prea scurtă", "Minim 8 caractere.");
+      return;
+    }
+    if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+      notify("Parolă prea slabă", "Parola trebuie să conțină litere și cifre.");
       return;
     }
     if (password !== password2) {

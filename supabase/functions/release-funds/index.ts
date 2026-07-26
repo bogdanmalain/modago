@@ -411,8 +411,15 @@ async function processRefund(
   order: any,
   refundPct: number,
 ): Promise<ProcessResult> {
-  const { id: order_id, price_mdl, stripe_charge_id, item_id } = order;
-  const refund_amount_mdl = Math.round(price_mdl * refundPct) / 100;
+  const { id: order_id, price_mdl, fee_mdl, stripe_charge_id, item_id } = order;
+
+  // La refund COMPLET (vina vânzătorului — produs neconform etc.) cumpărătorul
+  // primește înapoi și taxa de protecție, nu doar prețul: nu trebuie să piardă
+  // nimic dintr-o tranzacție eșuată din vina celeilalte părți.
+  // La refund parțial/split taxa rămâne reținută (decizie împărțită).
+  const refund_amount_mdl = refundPct === 100
+    ? Math.round((Number(price_mdl) + Number(fee_mdl ?? 0)) * 100) / 100
+    : Math.round(price_mdl * refundPct) / 100;
 
   let stripeRefundId: string | null = null;
 
@@ -453,7 +460,9 @@ async function processRefund(
     type: refundPct === 100 ? "refund" : "partial_refund",
     amount_mdl: refund_amount_mdl,
     stripe_id: stripeRefundId,
-    notes: `Refund ${refundPct}% după decizie admin`,
+    notes: refundPct === 100
+      ? `Refund 100% (preț + taxă protecție) după decizie admin`
+      : `Refund ${refundPct}% după decizie admin`,
   });
 
   await Promise.allSettled([

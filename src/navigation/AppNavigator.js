@@ -16,6 +16,7 @@ import {
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import * as Linking from "expo-linking";
 
 import { ROUTES } from "./routes";
 import { supabase } from "../supabaseClient";
@@ -163,9 +164,12 @@ function MobileRootStack() {
   );
 }
 
-function AuthStack() {
+function AuthStack({ initialRouteName }) {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator
+      screenOptions={{ headerShown: false }}
+      initialRouteName={initialRouteName || ROUTES.Welcome}
+    >
       <Stack.Screen name={ROUTES.Welcome} component={WelcomeScreen} />
       <Stack.Screen name={ROUTES.Login} component={LoginScreen} />
       <Stack.Screen name={ROUTES.Register} component={RegisterScreen} />
@@ -181,11 +185,21 @@ function AuthStack() {
   );
 }
 
+// Link-ul din emailul de resetare (modago://reset-password#access_token=...)
+// trebuie să forțeze ecranul de resetare chiar dacă tokenurile din URL creează
+// o sesiune — altfel comutarea automată pe stack-ul logat demontează ecranul
+// înainte ca utilizatorul să apuce să-și schimbe parola.
+function isPasswordRecoveryUrl(url) {
+  if (!url) return false;
+  return url.includes("reset-password") || url.includes("type=recovery");
+}
+
 export default function AppNavigator() {
   const navRef = useNavigationContainerRef();
 
   const [session, setSession] = useState(null);
   const [sessionReady, setSessionReady] = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   const currentRouteNameRef = useRef(null);
 
@@ -206,12 +220,33 @@ export default function AppNavigator() {
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => setSession(newSession ?? null),
+      (event, newSession) => {
+        setSession(newSession ?? null);
+        if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
+        if (event === "SIGNED_OUT") setPasswordRecovery(false);
+      },
     );
 
     return () => {
       mounted = false;
       sub?.subscription?.unsubscribe?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    Linking.getInitialURL().then((url) => {
+      if (mounted && isPasswordRecoveryUrl(url)) setPasswordRecovery(true);
+    });
+
+    const sub = Linking.addEventListener("url", ({ url }) => {
+      if (isPasswordRecoveryUrl(url)) setPasswordRecovery(true);
+    });
+
+    return () => {
+      mounted = false;
+      sub?.remove?.();
     };
   }, []);
 
@@ -228,9 +263,11 @@ export default function AppNavigator() {
 
   const AppTree = useMemo(() => {
     if (!sessionReady) return null;
+    if (passwordRecovery)
+      return <AuthStack initialRouteName={ROUTES.ResetPassword} />;
     if (!session) return <AuthStack />;
     return <MobileRootStack />;
-  }, [sessionReady, session]);
+  }, [sessionReady, session, passwordRecovery]);
 
   return (
     <ThemeProvider>

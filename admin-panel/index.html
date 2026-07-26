@@ -271,6 +271,65 @@ async function processWithdrawal(request, status) {
   });
 }
 
+async function attachReportRelations(reports) {
+  const userIds = [
+    ...new Set(
+      reports.flatMap((r) => [r.reporter_id, r.reported_user_id]).filter(Boolean),
+    ),
+  ];
+  let byId = {};
+  if (userIds.length > 0) {
+    const { data: profiles, error } = await supabase
+      .from("profiles")
+      .select("id, username")
+      .in("id", userIds);
+    if (error) throw error;
+    byId = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]));
+  }
+  return reports.map((r) => ({
+    ...r,
+    reporter: byId[r.reporter_id] ?? null,
+    reported: byId[r.reported_user_id] ?? null,
+  }));
+}
+
+async function getOpenReports() {
+  const { data, error } = await supabase
+    .from("reports")
+    .select("*, item:items(id, title, status)")
+    .eq("status", "open")
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return attachReportRelations(data ?? []);
+}
+
+async function getProcessedReports() {
+  const { data, error } = await supabase
+    .from("reports")
+    .select("*, item:items(id, title, status)")
+    .in("status", ["resolved", "dismissed"])
+    .order("resolved_at", { ascending: false })
+    .limit(30);
+  if (error) throw error;
+  return attachReportRelations(data ?? []);
+}
+
+async function processReport(report, status) {
+  const { error } = await supabase
+    .from("reports")
+    .update({ status, resolved_at: new Date().toISOString() })
+    .eq("id", report.id);
+  if (error) throw error;
+}
+
+async function takedownItem(itemId) {
+  const { error } = await supabase
+    .from("items")
+    .update({ status: "deleted" })
+    .eq("id", itemId);
+  if (error) throw error;
+}
+
 function logoutButton() {
   const btn = document.createElement("button");
   btn.id = "logout";
@@ -284,6 +343,7 @@ function tabsHtml(active) {
     <div class="tabs">
       <button class="tab-btn ${active === "disputes" ? "active" : ""}" id="tabDisputes">Dispute</button>
       <button class="tab-btn ${active === "withdrawals" ? "active" : ""}" id="tabWithdrawals">Retrageri</button>
+      <button class="tab-btn ${active === "reports" ? "active" : ""}" id="tabReports">Rapoarte</button>
     </div>
   `;
 }
@@ -291,6 +351,7 @@ function tabsHtml(active) {
 function wireTabs() {
   document.getElementById("tabDisputes").onclick = renderList;
   document.getElementById("tabWithdrawals").onclick = renderWithdrawals;
+  document.getElementById("tabReports").onclick = renderReports;
 }
 
 function disputeCard(d) {
@@ -428,6 +489,107 @@ async function renderWithdrawals() {
     listProcessed.innerHTML = `<div class="empty">Nicio cerere procesată încă.</div>`;
   } else {
     processed.forEach((w) => listProcessed.appendChild(withdrawalCard(w, { actionable: false })));
+  }
+}
+
+const REPORT_STATUS_LABELS = { open: "Deschis", resolved: "Rezolvat", dismissed: "Respins" };
+const REPORT_TYPE_LABELS = { item: "Anunț", user: "Utilizator", conversation: "Conversație" };
+
+function reportCard(r, { actionable }) {
+  const card = document.createElement("div");
+  card.className = "card";
+  const badgeClass = r.status === "resolved" ? "resolved" : r.status === "open" ? "review" : "";
+  const itemLine = r.item
+    ? `<div class="wd-meta"><b>Anunț:</b> ${r.item.title ?? "-"} ${r.item.status === "deleted" ? "(dezactivat)" : ""}</div>`
+    : "";
+  card.innerHTML = `
+    <span class="badge ${badgeClass}">${REPORT_STATUS_LABELS[r.status] ?? r.status}</span>
+    <h3>[${REPORT_TYPE_LABELS[r.target_type] ?? r.target_type}] ${r.reason}</h3>
+    ${itemLine}
+    <div class="wd-meta"><b>Raportat de:</b> ${r.reporter?.username ?? "-"}</div>
+    ${r.reported ? `<div class="wd-meta"><b>Utilizator raportat:</b> ${r.reported.username}</div>` : ""}
+    ${r.details ? `<div class="reason">${r.details}</div>` : ""}
+    <div class="wd-meta"><b>Trimis:</b> ${new Date(r.created_at).toLocaleString("ro-RO")}</div>
+  `;
+
+  if (actionable) {
+    const actions = document.createElement("div");
+    actions.className = "wd-actions";
+    const canTakedown = r.item && r.item.status !== "deleted";
+    actions.innerHTML = `
+      ${canTakedown ? `<button class="btn-reject" style="flex:1">Dezactivează anunțul</button>` : ""}
+      <button class="btn-approve" style="flex:1">Rezolvat</button>
+      <button class="btn-back" style="flex:1">Respinge raportul</button>
+    `;
+    const buttons = actions.querySelectorAll("button");
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "error";
+
+    const withBusy = async (fn) => {
+      buttons.forEach((b) => (b.disabled = true));
+      try {
+        await fn();
+        renderReports();
+      } catch (e) {
+        errorDiv.textContent = e.message;
+        buttons.forEach((b) => (b.disabled = false));
+      }
+    };
+
+    let idx = 0;
+    if (canTakedown) {
+      buttons[idx++].onclick = () =>
+        confirm("Dezactivezi anunțul raportat? Va dispărea din aplicație.") &&
+        withBusy(async () => {
+          await takedownItem(r.item.id);
+          await processReport(r, "resolved");
+        });
+    }
+    buttons[idx++].onclick = () => withBusy(() => processReport(r, "resolved"));
+    buttons[idx].onclick = () => withBusy(() => processReport(r, "dismissed"));
+
+    card.appendChild(actions);
+    card.appendChild(errorDiv);
+  }
+  return card;
+}
+
+async function renderReports() {
+  document.getElementById("logout")?.remove();
+  logoutButton();
+  h(`${tabsHtml("reports")}<h1>Rapoarte</h1><p class="sub">Se încarcă...</p>`);
+
+  let open, processed;
+  try {
+    [open, processed] = await Promise.all([getOpenReports(), getProcessedReports()]);
+  } catch (e) {
+    h(`${tabsHtml("reports")}<h1>Rapoarte</h1><div class="error">${e.message}</div>`);
+    wireTabs();
+    return;
+  }
+
+  h(`
+    ${tabsHtml("reports")}
+    <h1>Rapoarte</h1>
+    <p class="sub">${open.length} deschise</p>
+    <div id="listOpenReports"></div>
+    <h1 style="margin-top:28px">Istoric</h1>
+    <div id="listProcessedReports"></div>
+  `);
+  wireTabs();
+
+  const listOpen = document.getElementById("listOpenReports");
+  if (open.length === 0) {
+    listOpen.innerHTML = `<div class="empty">Niciun raport deschis.</div>`;
+  } else {
+    open.forEach((r) => listOpen.appendChild(reportCard(r, { actionable: true })));
+  }
+
+  const listProcessed = document.getElementById("listProcessedReports");
+  if (processed.length === 0) {
+    listProcessed.innerHTML = `<div class="empty">Niciun raport procesat încă.</div>`;
+  } else {
+    processed.forEach((r) => listProcessed.appendChild(reportCard(r, { actionable: false })));
   }
 }
 

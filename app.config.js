@@ -4,6 +4,7 @@ export default {
   expo: {
     name: "ModaGo",
     slug: "ModaGo",
+    scheme: "modago",
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",

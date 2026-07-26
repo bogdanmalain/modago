@@ -41,6 +41,11 @@ import { useUnread } from "../context/UnreadContext";
 import { ROUTES } from "../navigation/routes";
 import { ThemeContext } from "../theme/ThemeProvider";
 import HeaderBackButton from "../components/HeaderBackButton";
+import {
+  submitReport,
+  blockUser,
+  REPORT_REASONS,
+} from "../services/moderationService";
 
 // ─────────────────────────────────────────────
 // FILTRU ANTI-BYPASS
@@ -215,7 +220,68 @@ export default function ChatScreen({ navigation, route }) {
 
   const isBuyer = String(conversation?.buyer_id) === String(userId);
   const otherUser = isBuyer ? conversation?.seller : conversation?.buyer;
+  const otherUserId = isBuyer ? conversation?.seller_id : conversation?.buyer_id;
   const itemData = conversation?.item;
+
+  const onUserActions = useCallback(() => {
+    const name = otherUser?.username || "acest utilizator";
+
+    Alert.alert(name, "Ce vrei să faci?", [
+      {
+        text: "Raportează utilizatorul",
+        onPress: () => {
+          Alert.alert("Raportează", "Care este motivul?", [
+            ...REPORT_REASONS.map((reason) => ({
+              text: reason,
+              onPress: async () => {
+                try {
+                  await submitReport(
+                    {
+                      type: "user",
+                      userId: otherUserId,
+                      conversationId: conversation?.id,
+                    },
+                    reason,
+                  );
+                  Alert.alert("Mulțumim", "Raportul a fost trimis.");
+                } catch (e) {
+                  Alert.alert("Eroare", e?.message || "Nu am putut raporta.");
+                }
+              },
+            })),
+            { text: "Anulează", style: "cancel" },
+          ]);
+        },
+      },
+      {
+        text: "Blochează utilizatorul",
+        style: "destructive",
+        onPress: () => {
+          Alert.alert(
+            "Blochezi acest utilizator?",
+            "Nu veți mai putea să vă trimiteți mesaje. Poți debloca oricând din conversație.",
+            [
+              { text: "Anulează", style: "cancel" },
+              {
+                text: "Blochează",
+                style: "destructive",
+                onPress: async () => {
+                  try {
+                    await blockUser(otherUserId);
+                    Alert.alert("Blocat", "Utilizatorul a fost blocat.");
+                    navigation.goBack();
+                  } catch (e) {
+                    Alert.alert("Eroare", e?.message || "Nu am putut bloca.");
+                  }
+                },
+              },
+            ],
+          );
+        },
+      },
+      { text: "Anulează", style: "cancel" },
+    ]);
+  }, [otherUser?.username, otherUserId, conversation?.id, navigation]);
 
   const flatListRef = useRef(null);
 
@@ -468,6 +534,19 @@ export default function ChatScreen({ navigation, route }) {
             <Image source={{ uri: itemData.images[0] }} style={S.headerThumb} />
           </TouchableOpacity>
         )}
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={onUserActions}
+          style={S.headerMenuBtn}
+          hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+        >
+          <Ionicons
+            name="ellipsis-vertical"
+            size={20}
+            color={tokens.text}
+          />
+        </TouchableOpacity>
       </View>
 
       {/* Banner anti-bypass */}
@@ -566,6 +645,13 @@ function makeStyles(tokens) {
       borderRadius: 8,
       borderWidth: 1,
       borderColor: border,
+    },
+
+    headerMenuBtn: {
+      paddingLeft: 8,
+      paddingVertical: 8,
+      justifyContent: "center",
+      alignItems: "center",
     },
 
     loadingCenter: { flex: 1, alignItems: "center", justifyContent: "center" },

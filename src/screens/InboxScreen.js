@@ -29,6 +29,7 @@ import { useFocusEffect } from "@react-navigation/native";
 
 import { supabase } from "../supabaseClient";
 import { fetchConversations, hideConversation } from "../services/chatService";
+import { getBlockedIds } from "../services/moderationService";
 import { useUnread } from "../context/UnreadContext";
 import { ROUTES } from "../navigation/routes";
 import { ThemeContext } from "../theme/ThemeProvider";
@@ -319,8 +320,23 @@ export default function InboxScreen({ navigation }) {
     }
 
     try {
-      const data = await fetchConversations(userId);
-      setConversations(data);
+      const [data, blockedIds] = await Promise.all([
+        fetchConversations(userId),
+        getBlockedIds(),
+      ]);
+
+      const visible =
+        blockedIds.size === 0
+          ? data
+          : data.filter((c) => {
+              const otherId =
+                String(c.buyer_id) === String(userId)
+                  ? c.seller_id
+                  : c.buyer_id;
+              return !blockedIds.has(otherId);
+            });
+
+      setConversations(visible);
       refreshUnread();
     } catch (e) {
       console.log("❌ loadConversations:", e);

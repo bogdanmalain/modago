@@ -46,6 +46,7 @@ import {
   toggleFavorite,
 } from "../services/favoritesService";
 import { getOrCreateConversation } from "../services/chatService";
+import { submitReport, REPORT_REASONS } from "../services/moderationService";
 import { ThemeContext } from "../theme/ThemeProvider";
 import HeaderBackButton from "../components/HeaderBackButton";
 
@@ -743,6 +744,38 @@ export default function ItemDetailsScreen({ navigation, route }) {
     });
   }, [session?.user?.id, navigation, isOwner, item, sellerProfile]);
 
+  const onReportItem = useCallback(() => {
+    if (!session?.user?.id) {
+      navigation.navigate(ROUTES.Login);
+      return;
+    }
+
+    Alert.alert(
+      "Raportează anunțul",
+      "Care este motivul?",
+      [
+        ...REPORT_REASONS.map((reason) => ({
+          text: reason,
+          onPress: async () => {
+            try {
+              await submitReport(
+                { type: "item", itemId: item.id, userId: item.user_id },
+                reason,
+              );
+              Alert.alert(
+                "Mulțumim",
+                "Raportul a fost trimis. Îl vom analiza cât de curând.",
+              );
+            } catch (e) {
+              Alert.alert("Eroare", e?.message || "Nu am putut trimite raportul.");
+            }
+          },
+        })),
+        { text: "Anulează", style: "cancel" },
+      ],
+    );
+  }, [session?.user?.id, navigation, item]);
+
   const onOwnerLongPress = useCallback(() => {
     if (!isOwner) return;
 
@@ -1055,6 +1088,16 @@ export default function ItemDetailsScreen({ navigation, route }) {
                 </TouchableOpacity>
               )}
             </View>
+          )}
+
+          {!isOwner && (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={onReportItem}
+              style={S.reportBtn}
+            >
+              <Text style={S.reportBtnText}>⚑ Raportează anunțul</Text>
+            </TouchableOpacity>
           )}
 
           {!relatedLoading && moreFromSeller.length > 0 ? (
@@ -1651,6 +1694,19 @@ function makeStyles(tokens, HERO_H, insets, SCREEN_H) {
       fontSize: 14,
       fontWeight: "800",
       color: primary,
+    },
+
+    reportBtn: {
+      marginTop: 14,
+      alignSelf: "center",
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+    },
+
+    reportBtnText: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: muted,
     },
 
     // Bottom bar

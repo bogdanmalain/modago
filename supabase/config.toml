@@ -153,7 +153,10 @@ enabled = true
 # in emails.
 site_url = "https://hvtlibovcawhgiqwgdte.supabase.co"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["exp://3esyb0y-anonymous-8081.exp.direct/--/reset"]
+additional_redirect_urls = [
+  "exp://3esyb0y-anonymous-8081.exp.direct/--/reset",
+  "modago://reset-password",
+]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to the local API URL (http://127.0.0.1:<port>/auth/v1).
@@ -172,10 +175,10 @@ enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
-minimum_password_length = 6
+minimum_password_length = 8
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
 # are: `letters_digits`, `lower_upper_letters_digits`, `lower_upper_letters_digits_symbols`
-password_requirements = ""
+password_requirements = "letters_digits"
 
 # Configure passkey sign-ins.
 # [auth.passkey]
@@ -326,7 +329,9 @@ email_optional = false
 
 [auth.external.google]
 enabled = true
-client_id = "117717672138-clhr60u9gn5rh7c9apitupg747vncmo1.apps.googleusercontent.com"
+# Toate 3 (Web + Android + iOS) — Android/iOS sunt necesare pentru validarea
+# tokenurilor native din aplicație; NU le scoate, altfel login-ul Google moare.
+client_id = "117717672138-clhr60u9gn5rh7c9apitupg747vncmo1.apps.googleusercontent.com,117717672138-abv90evfspliurqgs14v1j3vdqju98a7.apps.googleusercontent.com,117717672138-1sl37cji0mje2vuuot593fmogdvm1960.apps.googleusercontent.com"
 # DO NOT commit your OAuth provider secret to git. Use environment variable substitution instead:
 secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
 redirect_uri = ""
