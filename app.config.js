@@ -50,6 +50,9 @@ export default {
       ],
       "@react-native-google-signin/google-signin",
       "expo-apple-authentication",
+      // Raportare de erori. Fără SENTRY_ORG/SENTRY_PROJECT + SENTRY_AUTH_TOKEN
+      // build-ul merge normal, dar stack trace-urile rămân minificate.
+      "@sentry/react-native",
     ],
     extra: {
       supabaseUrl: process.env.SUPABASE_URL,
@@ -59,6 +62,8 @@ export default {
         "117717672138-clhr60u9gn5rh7c9apitupg747vncmo1.apps.googleusercontent.com",
       googleIosClientId:
         "117717672138-1sl37cji0mje2vuuot593fmogdvm1960.apps.googleusercontent.com",
+      // Gol => raportarea de erori e dezactivată, aplicația merge normal.
+      sentryDsn: process.env.SENTRY_DSN ?? "",
       eas: {
         projectId: "817c1716-ab8f-40a6-8d1b-fd4aa330d5f2",
       },

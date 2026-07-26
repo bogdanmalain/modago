@@ -257,6 +257,7 @@ const PRIVACY = {
         "Supabase — găzduirea bazei de date, autentificarea și stocarea fișierelor.",
         "Stripe — procesarea plăților, escrow și rambursări. Stripe operează ca operator independent pentru datele de plată, conform propriei politici de confidențialitate.",
         "Expo — livrarea notificărilor push către dispozitivul tău.",
+        "Sentry — colectarea rapoartelor tehnice de eroare, pentru a identifica și remedia defecțiunile aplicației. Rapoartele conțin informații despre dispozitiv, versiunea aplicației și locul din cod unde a apărut eroarea, împreună cu identificatorul contului tău. Nu includ parole, date de card sau adrese de livrare.",
         "Google și Apple — doar dacă alegi autentificarea prin aceste servicii.",
         "Curieri și servicii de livrare — datele de expediere necesare pentru transportul coletului.",
         "Autorități publice — atunci când legea ne obligă.",

@@ -59,6 +59,7 @@ import SettingsScreen from "../screens/SettingsScreen";
 import ThemeSettingsScreen from "../screens/ThemeSettingsScreen";
 import SecurityScreen from "../screens/SecurityScreen";
 import LegalDocumentScreen from "../screens/LegalDocumentScreen";
+import { setErrorTrackingUser } from "../services/errorTracking";
 import BalanceScreen from "../screens/BalanceScreen";
 import OrdersScreen from "../screens/OrdersScreen";
 import VacationModeScreen from "../screens/VacationModeScreen";
@@ -233,6 +234,7 @@ export default function AppNavigator() {
     const { data: sub } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
         setSession(newSession ?? null);
+        setErrorTrackingUser(newSession?.user?.id ?? null);
         if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
         if (event === "SIGNED_OUT") setPasswordRecovery(false);
       },

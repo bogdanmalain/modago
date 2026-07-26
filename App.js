@@ -8,11 +8,18 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import AppNavigator from "./src/navigation/AppNavigator";
 import "./src/services/notificationService";
 import { StripeProvider } from "./src/utils/stripeCompat";
+import {
+  initErrorTracking,
+  wrapRootComponent,
+} from "./src/services/errorTracking";
+
+// Înainte de orice randare, ca erorile de la pornire să fie prinse.
+initErrorTracking();
 
 const STRIPE_PUBLISHABLE_KEY =
   Constants.expoConfig?.extra?.stripePublishableKey;
 
-export default function App() {
+function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
@@ -23,3 +30,5 @@ export default function App() {
     </GestureHandlerRootView>
   );
 }
+
+export default wrapRootComponent(App);
