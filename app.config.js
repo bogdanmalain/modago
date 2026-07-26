@@ -58,6 +58,10 @@ export default {
         {
           organization: "modago",
           project: "react-native",
+          // Organizația e în regiunea UE. Fără asta plugin-ul scrie
+          // defaults.url=https://sentry.io/ (instanța US) și source maps
+          // se încarcă în gol — release-ul rămâne cu 0 fișiere.
+          url: "https://de.sentry.io/",
         },
       ],
     ],
