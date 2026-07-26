@@ -276,9 +276,15 @@ export default function AppNavigator() {
 
   const AppTree = useMemo(() => {
     if (!sessionReady) return null;
+    // Cheile diferite sunt obligatorii: fără ele React vede același tip de
+    // component, păstrează navigatorul montat și ignoră initialRouteName —
+    // adică link-ul de resetare din email ajunge în aplicație, dar ecranul
+    // rămâne pe Welcome.
     if (passwordRecovery)
-      return <AuthStack initialRouteName={ROUTES.ResetPassword} />;
-    if (!session) return <AuthStack />;
+      return (
+        <AuthStack key="recovery" initialRouteName={ROUTES.ResetPassword} />
+      );
+    if (!session) return <AuthStack key="auth" />;
     return <MobileRootStack />;
   }, [sessionReady, session, passwordRecovery]);
 

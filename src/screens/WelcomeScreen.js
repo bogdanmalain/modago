@@ -35,6 +35,7 @@ import {
 
 import { ThemeContext } from "../theme/ThemeProvider";
 import AppButton from "../components/AppButton";
+import { ROUTES } from "../navigation/routes";
 
 export default function WelcomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -79,6 +80,13 @@ export default function WelcomeScreen({ navigation }) {
       Alert.alert("Link", "A apărut o eroare la deschiderea link-ului.");
     }
   }, []);
+
+  const openLegal = useCallback(
+    (documentId) => {
+      navigation.navigate(ROUTES.LegalDocument, { documentId });
+    },
+    [navigation],
+  );
 
   const onPressLanguage = useCallback(() => {
     Alert.alert(
@@ -190,6 +198,20 @@ export default function WelcomeScreen({ navigation }) {
             Despre ModaGo:{" "}
             <Text style={styles.link} onPress={openAbout}>
               Platforma noastră
+            </Text>
+          </Text>
+
+          <Text style={styles.footer}>
+            <Text style={styles.link} onPress={() => openLegal("terms")}>
+              Termeni
+            </Text>
+            {"  ·  "}
+            <Text style={styles.link} onPress={() => openLegal("privacy")}>
+              Confidențialitate
+            </Text>
+            {"  ·  "}
+            <Text style={styles.link} onPress={() => openLegal("returns")}>
+              Retur
             </Text>
           </Text>
         </View>
