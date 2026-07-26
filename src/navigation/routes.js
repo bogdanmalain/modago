@@ -31,6 +31,7 @@ export const ROUTES = {
   Settings: "Settings",
   ThemeSettings: "ThemeSettings",
   Security: "Security",
+  Legal: "Legal",
   LegalDocument: "LegalDocument",
 
   Balance: "Balance",

@@ -164,12 +164,9 @@ export default function SettingsScreen() {
     navigation.navigate(ROUTES.ThemeSettings);
   }, [navigation]);
 
-  const goLegal = useCallback(
-    (documentId) => {
-      navigation.navigate(ROUTES.LegalDocument, { documentId });
-    },
-    [navigation],
-  );
+  const goLegal = useCallback(() => {
+    navigation.navigate(ROUTES.Legal);
+  }, [navigation]);
 
   const themeLabel = getThemeLabel(settings);
 
@@ -258,26 +255,12 @@ export default function SettingsScreen() {
           />
         </View>
 
-        <SectionTitle S={S}>Legal</SectionTitle>
+        <SectionTitle S={S}>Despre</SectionTitle>
         <View style={S.card}>
           <SettingsRow
             icon="document-text-outline"
-            title="Termeni și Condiții"
-            onPress={() => goLegal("terms")}
-            S={S}
-            showDivider
-          />
-          <SettingsRow
-            icon="lock-closed-outline"
-            title="Politica de Confidențialitate"
-            onPress={() => goLegal("privacy")}
-            S={S}
-            showDivider
-          />
-          <SettingsRow
-            icon="refresh-outline"
-            title="Retur și rambursare"
-            onPress={() => goLegal("returns")}
+            title="Informații juridice"
+            onPress={goLegal}
             S={S}
           />
         </View>

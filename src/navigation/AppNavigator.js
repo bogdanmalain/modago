@@ -59,6 +59,7 @@ import SettingsScreen from "../screens/SettingsScreen";
 import ThemeSettingsScreen from "../screens/ThemeSettingsScreen";
 import SecurityScreen from "../screens/SecurityScreen";
 import LegalDocumentScreen from "../screens/LegalDocumentScreen";
+import LegalIndexScreen from "../screens/LegalIndexScreen";
 import { setErrorTrackingUser } from "../services/errorTracking";
 import BalanceScreen from "../screens/BalanceScreen";
 import OrdersScreen from "../screens/OrdersScreen";
@@ -134,6 +135,7 @@ function MobileRootStack() {
         component={ThemeSettingsScreen}
       />
       <Stack.Screen name={ROUTES.Security} component={SecurityScreen} />
+      <Stack.Screen name={ROUTES.Legal} component={LegalIndexScreen} />
       <Stack.Screen
         name={ROUTES.LegalDocument}
         component={LegalDocumentScreen}
